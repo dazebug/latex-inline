@@ -1,0 +1,11 @@
+{
+  "name": "latex-inline-renderer",
+  "private": true,
+  "description": "MathJax and resvg for latex-inline's bin/render.mjs",
+  "license": "MIT",
+  "dependencies": {
+    "@mathjax/mathjax-fira-font": "4.1.3",
+    "@resvg/resvg-js": "2.6.2",
+    "mathjax": "4.1.3"
+  }
+}

@@ -1,0 +1,81 @@
+{
+  "name": "latex-inline",
+  "displayName": "LaTeX Inline",
+  "version": "0.1.0",
+  "description": "Typesets the LaTeX math in Claude's replies as pictures inside the terminal, inline with the text, in Ghostty, cmux and kitty",
+  "author": {
+    "name": "dazebug",
+    "url": "https://github.com/dazebug"
+  },
+  "homepage": "https://github.com/dazebug/latex-inline",
+  "repository": "https://github.com/dazebug/latex-inline",
+  "license": "MIT",
+  "keywords": ["latex", "math", "mathjax", "terminal", "ghostty", "kitty", "mod"],
+  "userConfig": {
+    "mode": {
+      "type": "string",
+      "title": "When to draw math",
+      "description": "auto draws only in terminals that show kitty-graphics pictures (Ghostty, cmux, kitty; not inside tmux). on draws everywhere, off never.",
+      "options": ["auto", "on", "off"],
+      "default": "auto"
+    },
+    "teach_claude": {
+      "type": "boolean",
+      "title": "Tell Claude to write math in LaTeX",
+      "description": "Adds a short section to the system prompt, only where math is drawn, asking Claude to write formulas as $...$ and $$...$$.",
+      "default": true
+    },
+    "node_path": {
+      "type": "string",
+      "title": "Node.js executable",
+      "description": "The node that runs the renderer, as a command on PATH or an absolute path.",
+      "default": "node"
+    },
+    "cell_aspect": {
+      "type": "number",
+      "title": "Cell height over width",
+      "description": "Your terminal font's cell height divided by its width. 2.2 fits JetBrains Mono, Ghostty's default; 2.0 fits Fira Code. Formulas look stretched when it is off.",
+      "default": 2.2,
+      "min": 1,
+      "max": 4
+    },
+    "baseline": {
+      "type": "number",
+      "title": "Baseline position",
+      "description": "Where the text baseline sits in a cell, as a fraction of the cell height from the top: 0.773 for JetBrains Mono, 0.75 for Fira Code.",
+      "default": 0.773,
+      "min": 0.5,
+      "max": 0.95
+    },
+    "line_height": {
+      "type": "number",
+      "title": "Cell height in ems",
+      "description": "The cell height in ems of your terminal font: 1.32 for JetBrains Mono, 1.231 for Fira Code.",
+      "default": 1.32,
+      "min": 1,
+      "max": 2
+    },
+    "math_scale": {
+      "type": "number",
+      "title": "Inline math size",
+      "description": "Inline formula size in ems of your terminal font. Formulas taller than a row take three rows instead of shrinking.",
+      "default": 1.62,
+      "min": 0.5,
+      "max": 4
+    },
+    "display_scale": {
+      "type": "number",
+      "title": "Display math size",
+      "description": "Display formula ($$...$$) size in ems of your terminal font.",
+      "default": 2.18,
+      "min": 0.5,
+      "max": 6
+    },
+    "color": {
+      "type": "string",
+      "title": "Math color",
+      "description": "auto follows Claude Code's theme; or a #rrggbb color.",
+      "default": "auto"
+    }
+  }
+}
