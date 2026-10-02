@@ -1,6 +1,6 @@
 import type { EngineInterface, Register } from 'claude-code'
 
-import { parseBlocks, splitMarkdown, type Token } from './parse'
+import { glueTokens, parseBlocks, splitMarkdown, type Token } from './parse'
 import { canDrawImages, inkFor, type Ink } from './support'
 
 // Part of every cache key: bump it when bin/render.mjs draws differently.
@@ -33,22 +33,25 @@ const queue = new Map<string, Job>()
 const inflight = new Set<string>()
 let isRendering = false
 
-// The picture geometry render.mjs draws to, from the user's settings: the
-// terminal font's cell (height over width, the baseline's place down the
-// cell, the cell height in ems) and the formula sizes in ems of that font.
-// Formulas are never shrunk to fit one row (inlineShrinkLimit 1): one that
-// overflows takes three rows, so every formula has the same size.
+// The picture geometry render.mjs draws to: the terminal font's cell (height
+// over width, the baseline's place down the cell, the cell height in ems),
+// worked out from the terminal's font at session start or taken from the
+// user's settings, and the formula sizes in ems of that font. Formulas are
+// never shrunk to fit one row (inlineShrinkLimit 1): one that overflows takes
+// three rows, so every formula has the same size.
 let style = {
   rowPx: ROW_PX,
-  cellRatio: 2.2,
-  baseline: 0.773,
-  lineEm: 1.32,
+  cellRatio: 2.125,
+  baseline: 0.765,
+  lineEm: 1.308,
   mathScale: 1.62,
   inlineShrinkLimit: 1,
   displayScale: 2.18,
   fontFamily: 'fira',
 }
 let config = { node: 'node', cacheDir: '', canDraw: false, teach: true, ink: inkFor(undefined, 'auto') as Ink }
+// What bin/font-metrics.mjs made of the terminal's font, for /latex-inline.
+let fontReport = 'not looked up'
 
 function numberOption(options: Options, key: string, fallback: number): number {
   const value = options[key]
@@ -73,6 +76,34 @@ function keyOf(job: Job): string {
   h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909)
   h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909)
   return (h2 >>> 0).toString(16).padStart(8, '0') + (h1 >>> 0).toString(16).padStart(8, '0')
+}
+
+type FontAnswer =
+  | { ok: true; family: string; file?: string; size: number; cell_aspect: number; baseline: number; line_height: number }
+  | { ok: false; reason: string }
+
+// Reads the cell geometry off the terminal's configured font and puts it in
+// `style`; on any failure the settings' numbers stay.
+async function detectFont($: EngineInterface, terminal: string): Promise<void> {
+  try {
+    const { exitCode, stdout, stderr } = await $.process.run([config.node, `${$.plugin.root}/bin/font-metrics.mjs`], {
+      stdin: JSON.stringify({ terminal }),
+      timeoutMs: 10_000,
+    })
+    if (exitCode !== 0) {
+      fontReport = `lookup failed: ${stderr.trim().split('\n').pop() ?? `exit ${exitCode}`}`
+      return
+    }
+    const answer = JSON.parse(stdout) as FontAnswer
+    if (!answer.ok) {
+      fontReport = `not found (${answer.reason}); using the settings`
+      return
+    }
+    style = { ...style, cellRatio: answer.cell_aspect, baseline: answer.baseline, lineEm: answer.line_height }
+    fontReport = `${answer.family} ${answer.size}pt${answer.file ? ` (${answer.file})` : ''}`
+  } catch (error) {
+    fontReport = `lookup failed: ${String(error)}`
+  }
 }
 
 function isPicture(entry: Entry | undefined): entry is Picture {
@@ -187,12 +218,34 @@ export const register: Register = (on, options) => {
       teach: options.teach_claude !== false,
       ink: inkFor(typeof settings.theme === 'string' ? settings.theme : undefined, stringOption(options, 'color', 'auto')),
     }
+    fontReport = 'set by hand (font_metrics is manual)'
+    if (config.canDraw && stringOption(options, 'font_metrics', 'auto') === 'auto') {
+      const isGhostty = env.TERM_PROGRAM === 'ghostty' || env.TERM === 'xterm-ghostty'
+      const isKitty = Boolean(env.TERM?.includes('kitty')) || Boolean(env.KITTY_WINDOW_ID)
+      if (isGhostty || isKitty) await detectFont($, isGhostty ? 'ghostty' : 'kitty')
+      else fontReport = 'no font rules for this terminal; using the settings'
+    }
     if (config.canDraw) {
       $.clock.every(200, () => {
         void drain($)
       })
     }
+    await $.command.register({
+      name: 'latex-inline',
+      description: 'Show whether latex-inline draws math here, and the font geometry it uses',
+    })
     return next(e)
+  })
+
+  on('command.run', { command: 'latex-inline' }, async () => {
+    const lines = [
+      `Drawing math: ${config.canDraw ? 'yes' : 'no (this terminal shows no kitty-graphics pictures, or mode is off)'}`,
+      `Terminal font: ${fontReport}`,
+      `Cell: height/width ${style.cellRatio.toFixed(3)}, baseline at ${style.baseline.toFixed(3)} of the height, ${style.lineEm.toFixed(3)} em tall`,
+      `Sizes: inline ${style.mathScale} em, display ${style.displayScale} em`,
+      `Pictures: ${config.cacheDir}`,
+    ]
+    return { text: lines.join('\n') }
   })
 
   on('prompt.compose', async ($, e, next) => {
@@ -255,9 +308,19 @@ export const register: Register = (on, options) => {
 
     // One flex line per wrapped row; centering keeps the baselines level
     // because every picture is an odd number of rows with its baseline in the middle row.
+    // Tokens with no space between them wrap as one item, so a period or
+    // particle stays on the formula's line.
     const flow = (tokens: Token[]) => (
       <Box flexDirection="row" flexWrap="wrap" alignItems="center" flexShrink={1}>
-        {tokens.map(word)}
+        {glueTokens(tokens).map(group =>
+          group.length === 1 && group[0] ? (
+            word(group[0])
+          ) : (
+            <Box flexDirection="row" alignItems="center" flexShrink={0}>
+              {group.map(word)}
+            </Box>
+          ),
+        )}
       </Box>
     )
 
@@ -266,13 +329,18 @@ export const register: Register = (on, options) => {
       const entry = pictures.get(keyOf({ tex: token.tex, display: false }))
       return isPicture(entry) ? entry : { columns: cellWidth(`$${token.tex}$`), rows: 1 }
     }
+    const groupBoxes = (tokens: Token[]) =>
+      glueTokens(tokens).map(group => {
+        const boxes = group.map(boxOf)
+        return { columns: boxes.reduce((sum, box) => sum + box.columns, 0), rows: Math.max(1, ...boxes.map(box => box.rows)) }
+      })
     const width = (e.viewport?.columns ?? 80) - 2
     const first = blocks[0]
     let firstRows = 1
-    if (first?.kind === 'para') firstRows = firstLineRows(first.tokens.map(boxOf), width)
+    if (first?.kind === 'para') firstRows = firstLineRows(groupBoxes(first.tokens), width)
     if (first?.kind === 'list' && first.items[0]) {
       const item = first.items[0]
-      firstRows = firstLineRows(item.tokens.map(boxOf), width - cellWidth(item.prefix))
+      firstRows = firstLineRows(groupBoxes(item.tokens), width - cellWidth(item.prefix))
     }
     if (first?.kind === 'display') {
       const entry = pictures.get(keyOf({ tex: first.tex, display: true }))
@@ -281,9 +349,11 @@ export const register: Register = (on, options) => {
     const bullet = `${'\n'.repeat(Math.floor((firstRows - 1) / 2))}⏺`
 
     // Replacing the drawing drops the engine's gutter, so draw the reply's
-    // bullet (first block only) and its two-column indent here.
+    // bullet (first block only) and its two-column indent here. The last
+    // column stays empty: a line that fills it spills its final character
+    // onto the next row.
     return (
-      <Box flexDirection="row">
+      <Box flexDirection="row" paddingRight={1}>
         <Box width={2} flexShrink={0}>
           <Text>{e.props.isFirstOfReply ? bullet : ' '}</Text>
         </Box>

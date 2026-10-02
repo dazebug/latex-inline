@@ -219,3 +219,24 @@ export function splitMarkdown(text: string, limit: number): string[] | null {
   if (current !== '') pieces.push(current)
   return pieces
 }
+
+function spaceAfter(token: Token): boolean {
+  return token.kind !== 'math' && /\s$/.test(token.text)
+}
+
+function spaceBefore(token: Token): boolean {
+  return token.kind !== 'math' && /^\s/.test(token.text)
+}
+
+// Groups tokens that touch, with no space between them, so a line wraps only
+// at spaces: a period or particle stays with the formula it follows.
+export function glueTokens(tokens: Token[]): Token[][] {
+  const groups: Token[][] = []
+  for (const token of tokens) {
+    const last = groups[groups.length - 1]
+    const previous = last?.[last.length - 1]
+    if (last && previous && !spaceAfter(previous) && !spaceBefore(token)) last.push(token)
+    else groups.push([token])
+  }
+  return groups
+}

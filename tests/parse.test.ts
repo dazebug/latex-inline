@@ -1,6 +1,25 @@
 import { expect, test } from 'claude-code/testing'
 
-import { hasMath, parseBlocks, tokenize } from '../hooks/parse'
+import { glueTokens, hasMath, parseBlocks, tokenize } from '../hooks/parse'
+
+test('tokens with no space between them wrap together', async () => {
+  expect(glueTokens(tokenize('together: $e^{i\\pi}+1=0$.'))).toEqual([
+    [{ kind: 'text', text: 'together: ' }],
+    [
+      { kind: 'math', tex: 'e^{i\\pi}+1=0' },
+      { kind: 'text', text: '.' },
+    ],
+  ])
+  expect(glueTokens(tokenize('점수 ($x^2$)는 크다'))).toEqual([
+    [{ kind: 'text', text: '점수 ' }],
+    [
+      { kind: 'text', text: '(' },
+      { kind: 'math', tex: 'x^2' },
+      { kind: 'text', text: ')는 ' },
+    ],
+    [{ kind: 'text', text: '크다' }],
+  ])
+})
 
 test('inline math follows the pandoc dollar rules', async () => {
   expect(hasMath('점수는 $s_{int}$ 이다')).toBe(true)

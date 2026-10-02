@@ -1,7 +1,7 @@
 {
   "name": "latex-inline",
   "displayName": "LaTeX Inline",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Typesets the LaTeX math in Claude's replies as pictures inside the terminal, inline with the text, in Ghostty, cmux and kitty",
   "author": {
     "name": "dazebug",
@@ -10,13 +10,25 @@
   "homepage": "https://github.com/dazebug/latex-inline",
   "repository": "https://github.com/dazebug/latex-inline",
   "license": "MIT",
-  "keywords": ["latex", "math", "mathjax", "terminal", "ghostty", "kitty", "mod"],
+  "keywords": [
+    "latex",
+    "math",
+    "mathjax",
+    "terminal",
+    "ghostty",
+    "kitty",
+    "mod"
+  ],
   "userConfig": {
     "mode": {
       "type": "string",
       "title": "When to draw math",
       "description": "auto draws only in terminals that show kitty-graphics pictures (Ghostty, cmux, kitty; not inside tmux). on draws everywhere, off never.",
-      "options": ["auto", "on", "off"],
+      "options": [
+        "auto",
+        "on",
+        "off"
+      ],
       "default": "auto"
     },
     "teach_claude": {
@@ -31,27 +43,37 @@
       "description": "The node that runs the renderer, as a command on PATH or an absolute path.",
       "default": "node"
     },
+    "font_metrics": {
+      "type": "string",
+      "title": "Terminal font geometry",
+      "description": "auto reads your terminal's font from its config (Ghostty, cmux, kitty) and works out the three numbers below the way the terminal does; they apply only when that fails. manual always uses them.",
+      "options": [
+        "auto",
+        "manual"
+      ],
+      "default": "auto"
+    },
     "cell_aspect": {
       "type": "number",
       "title": "Cell height over width",
-      "description": "Your terminal font's cell height divided by its width. 2.2 fits JetBrains Mono, Ghostty's default; 2.0 fits Fira Code. Formulas look stretched when it is off.",
-      "default": 2.2,
+      "description": "Your terminal cell's height divided by its width, in pixels. 2.125 is Ghostty's default font, JetBrains Mono at 13pt; Fira Code at 12pt on a Retina display is 2.0. Formulas look stretched when it is off.",
+      "default": 2.125,
       "min": 1,
       "max": 4
     },
     "baseline": {
       "type": "number",
       "title": "Baseline position",
-      "description": "Where the text baseline sits in a cell, as a fraction of the cell height from the top: 0.773 for JetBrains Mono, 0.75 for Fira Code.",
-      "default": 0.773,
+      "description": "Where the text baseline sits in a cell, as a fraction of the cell height from the top: 0.765 for JetBrains Mono at 13pt, 0.767 for Fira Code at 12pt.",
+      "default": 0.765,
       "min": 0.5,
       "max": 0.95
     },
     "line_height": {
       "type": "number",
       "title": "Cell height in ems",
-      "description": "The cell height in ems of your terminal font: 1.32 for JetBrains Mono, 1.231 for Fira Code.",
-      "default": 1.32,
+      "description": "The cell height in ems of your terminal font: 1.308 for JetBrains Mono at 13pt, 1.25 for Fira Code at 12pt.",
+      "default": 1.308,
       "min": 1,
       "max": 2
     },

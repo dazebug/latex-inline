@@ -2,6 +2,10 @@
 
 LaTeX Inline typesets the math in Claude's replies right inside your terminal. When Claude writes `$e^{i\pi} + 1 = 0$` in the middle of a sentence, you see the typeset formula in that sentence, at the size of the text around it, instead of the raw source. Display math (`$$...$$`) is drawn centered on its own lines. It is a Claude Code [mod](https://code.claude.com/docs/en/plugins/mods/overview): it redraws each reply that contains math and leaves every other reply to Claude Code.
 
+![A Claude Code reply in Ghostty with Euler's identity, the Gaussian integral, the Basel problem and the golden ratio inline in the text, the Fourier transform and Maxwell's equations as display math, and Bayes' theorem, softmax and the Cauchy–Schwarz inequality in a list](docs/screenshot.png)
+
+*Ghostty with its default font (JetBrains Mono, 13pt) and the plugin's default settings.*
+
 Formulas are laid out by [MathJax](https://www.mathjax.org/) with the Fira Math font and drawn through the kitty graphics protocol, so they need a terminal that shows pictures that way: [Ghostty](https://ghostty.org/), cmux (built on Ghostty) or [kitty](https://sw.kovidgoyal.net/kitty/).
 
 ## Requirements
@@ -20,7 +24,7 @@ claude plugin marketplace add dazebug/latex-inline
 claude plugin install latex-inline@latex-inline
 ```
 
-Start a new session, or run `/reload-plugins` in an open one. `/plugin` then lists `latex-inline` among the active mods.
+Start a new session, or run `/reload-plugins` in an open one. `/plugin` then lists `latex-inline` among the active mods, and `/latex-inline` shows whether it draws math in this terminal and which font it measured.
 
 ## Writing math
 
@@ -39,38 +43,59 @@ If you turn `teach_claude` off, or want the rule in every session regardless of 
 
 ## Configuration
 
-Set options with `/plugin configure latex-inline@latex-inline` or in the `/config` panel.
+Set options with `/plugin configure latex-inline@latex-inline` or in the `/config` panel. The values are yours alone: they are kept in your own settings, under `pluginConfigs`.
 
 | Option | Default | What it does |
 | :- | :- | :- |
 | `mode` | `auto` | `auto` draws only in Ghostty, cmux and kitty outside tmux. `on` draws in any terminal, `off` never. |
 | `teach_claude` | `true` | Adds the math-writing section to the system prompt where the plugin draws. |
 | `node_path` | `node` | The Node.js executable that runs the renderer. |
-| `cell_aspect` | `2.2` | Your terminal font's cell height divided by its width. |
-| `baseline` | `0.773` | Where the text baseline sits in a cell, as a fraction of the cell height from the top. |
-| `line_height` | `1.32` | The cell height in ems of your terminal font. |
+| `font_metrics` | `auto` | `auto` measures your terminal font at session start (below). `manual` always uses the next three options. |
+| `cell_aspect` | `2.125` | Your terminal cell's height divided by its width, in pixels. |
+| `baseline` | `0.765` | Where the text baseline sits in a cell, as a fraction of the cell height from the top. |
+| `line_height` | `1.308` | The cell height in ems of your terminal font. |
 | `math_scale` | `1.62` | Inline formula size in ems of your terminal font. |
 | `display_scale` | `2.18` | Display formula size in ems of your terminal font. |
 | `color` | `auto` | Formula color: `auto` follows Claude Code's theme, or a `#rrggbb` color. |
 
-The terminal stretches each picture to fill the cells it is given, so the three cell options must match your terminal font, or formulas look stretched and sit off the baseline. The defaults fit JetBrains Mono, Ghostty's default font. For other fonts:
+Inline formulas never shrink to fit a text row. A formula that is taller than a row, such as one with a fraction or a subscript under a superscript, takes three rows, and that line of text is spaced apart to make room.
+
+### Matching your terminal font
+
+The terminal stretches each picture to fill the cells it is given, so the plugin has to know the shape of a cell: its height over its width, where the text baseline sits in it, and how tall it is in ems of the font. Get these wrong and formulas look stretched or sit above or below the text.
+
+With `font_metrics` set to `auto`, the default, the plugin works them out at the start of each session:
+
+1. It finds the font your terminal is set to. For Ghostty and cmux that is the first `font-family` in `~/.config/ghostty/config` (or `config.ghostty`, and on macOS `~/Library/Application Support/com.mitchellh.ghostty/config`), with Ghostty's built-in JetBrains Mono when none is set. For kitty it is `font_family` in `~/.config/kitty/kitty.conf`.
+2. It finds that font's file in your font folders and reads its metrics: units per em, ascender, descender, line gap, and the widest advance among the printable ASCII characters.
+3. It sizes a cell the way Ghostty does: at your `font-size` (13pt by default on macOS, 12pt elsewhere) times the display scale, the cell is the widest ASCII advance by the font's line height, each rounded to whole pixels, with the font's box centered in it. For kitty it uses the font's unrounded proportions.
+
+Run `/latex-inline` to see the font it found and the numbers it uses. When it can't find the font, it falls back to the three options. Set `font_metrics` to `manual` and enter the numbers yourself when the measured cell is still off, which happens when:
+
+- your Ghostty config changes the cell with `adjust-cell-height`, `adjust-cell-width` or `adjust-font-baseline`, or sets the font with `config-file` includes or command-line flags,
+- you zoom the font in the terminal (cmd and plus or minus),
+- your display scale differs from the plugin's assumption: 2x on macOS, 1x on Linux.
+
+Measured values for common setups:
 
 | Terminal font | `cell_aspect` | `baseline` | `line_height` |
 | :- | :- | :- | :- |
-| JetBrains Mono (Ghostty default) | 2.2 | 0.773 | 1.32 |
-| Fira Code | 2.0 | 0.75 | 1.231 |
+| JetBrains Mono 13pt (Ghostty default), any display | 2.125 | 0.765 | 1.308 |
+| Fira Code 12pt, Retina display | 2.0 | 0.767 | 1.25 |
 
-For another font, read its metrics with a font tool: `line_height` is (ascender + descender + line gap) / units per em, `cell_aspect` is `line_height` divided by the advance width of `M` in ems, and `baseline` is the ascender divided by (ascender + descender + line gap).
+To work the numbers out by hand for another font, take its units per em `u`, ascender `a`, descender `d` (negative), line gap `g` and widest ASCII advance `w` from a font tool, and your font size in points `s` times your display scale. With `p = s × scale / u`:
 
-Inline formulas never shrink to fit a text row. A formula that is taller than a row, such as one with a fraction or a subscript under a superscript, takes three rows, and that line of text is spaced apart to make room.
+- cell width `W = round(w × p)` and cell height `H = round((a − d + g) × p)` pixels
+- baseline from the bottom `B = round((g / 2 − d) × p − (H − (a − d + g) × p) / 2)` pixels
+- `cell_aspect = H / W`, `baseline = (H − B) / H`, `line_height = H / (s × scale)`
 
 ## What it runs, reads and writes
 
-- **Runs**: `node bin/render.mjs` from the plugin folder, once per batch of new formulas, with the formulas on its standard input. It lays each formula out with MathJax and rasterizes it to PNG with [resvg](https://github.com/RazrFalcon/resvg). Nothing else is run.
+- **Runs**: `node bin/font-metrics.mjs` once at session start when `font_metrics` is `auto`, and `node bin/render.mjs` from the plugin folder once per batch of new formulas, with the formulas on its standard input. The renderer lays each formula out with MathJax and rasterizes it to PNG with [resvg](https://github.com/RazrFalcon/resvg). Nothing else is run.
 - **Writes**: the PNG pictures and a small JSON record per formula in `$XDG_CACHE_HOME/latex-inline` (`~/.cache/latex-inline` by default). Delete that folder at any time to clear the cache.
-- **Reads**: those cache files, your environment's `TERM`, `TERM_PROGRAM`, `KITTY_WINDOW_ID`, `TMUX`, `HOME` and `XDG_CACHE_HOME`, Claude Code's `theme` setting, and, only for text inside `\text{}` that the math font has no glyph for, one CJK system font.
+- **Reads**: those cache files; your terminal's config file (`~/.config/ghostty/config` and its macOS and `.ghostty` variants, or `~/.config/kitty/kitty.conf`); the headers of the font files in your font folders, to find and measure the terminal font; your environment's `TERM`, `TERM_PROGRAM`, `KITTY_WINDOW_ID`, `TMUX`, `HOME`, `XDG_CACHE_HOME` and `XDG_CONFIG_HOME`; Claude Code's `theme` setting; and, only for text inside `\text{}` that the math font has no glyph for, one CJK system font.
 - **Network**: none at run time. Claude Code downloads the npm packages pinned in `package-lock.json` (`mathjax`, `@mathjax/mathjax-fira-font`, `@resvg/resvg-js`) when it installs the plugin.
-- **Changes to Claude**: the math-writing section in the system prompt described above, only where the plugin draws.
+- **Changes to Claude**: the math-writing section in the system prompt described above, only where the plugin draws, and the `/latex-inline` command.
 
 ## When a formula can't be drawn
 
@@ -86,7 +111,11 @@ Inline formulas never shrink to fit a text row. A formula that is taller than a 
 
 ## Troubleshooting
 
-Start Claude Code with `claude --debug` and search the debug log for `latex-inline`. A line ending in `not loaded:` says why the mod did not load, and a `ui.render (AssistantMessage) refused` line names a drawing Claude Code rejected.
+Run `/latex-inline` first: it says whether the plugin draws in this terminal, which font it measured and the cell it uses. For more, start Claude Code with `claude --debug` and search the debug log for `latex-inline`. A line ending in `not loaded:` says why the mod did not load, and a `ui.render (AssistantMessage) refused` line names a drawing Claude Code rejected.
+
+## Development
+
+Load your clone for one session with `claude --plugin-dir ./latex-inline`; Claude Code doesn't install the packages for a plugin loaded in place, so run `npm ci --ignore-scripts` in the clone first. `claude plugin test` runs the parser and helper tests, and `node --test tests/font-metrics.test.mjs` the font measuring tests.
 
 ## License
 
