@@ -2,7 +2,7 @@
 
 LaTeX Inline typesets the math in Claude's replies right inside your terminal. When Claude writes `$e^{i\pi} + 1 = 0$` in the middle of a sentence, you see the typeset formula in that sentence, at the size of the text around it, instead of the raw source. Display math (`$$...$$`) is drawn centered on its own lines. In terminals that can't show pictures, the same math is written as Unicode text instead: `e^(iπ) + 1 = 0`, `x = (−b ± √(b² − 4ac))/2a`. It is a Claude Code [mod](https://code.claude.com/docs/en/plugins/mods/overview): it redraws each reply that contains math and leaves every other reply to Claude Code.
 
-![A Claude Code reply in Ghostty with Euler's identity, the Gaussian integral, the Basel problem and the golden ratio inline in the text, the Fourier transform and Maxwell's equations as display math, and Bayes' theorem, softmax and the Cauchy–Schwarz inequality in a list](docs/screenshot.png)
+![A Claude Code session in Ghostty answering "Show me a few famous formulas": Euler's identity, the Gaussian integral, the Basel problem and the golden ratio inline in the text, the Fourier transform and Maxwell's equations as display math, Bayes' theorem, softmax and the Cauchy–Schwarz inequality in a list, Stirling's formula and a determinant inline, and four more formulas in a table, written as Unicode text](docs/screenshot.png)
 
 *Ghostty with its default font (JetBrains Mono, 13pt) and the plugin's default settings.*
 
