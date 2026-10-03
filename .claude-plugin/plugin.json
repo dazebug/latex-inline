@@ -1,7 +1,7 @@
 {
   "name": "latex-inline",
   "displayName": "LaTeX Inline",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Shows the LaTeX math in Claude's replies typeset: as pictures inline with the text in Ghostty, cmux and kitty, and as Unicode text in other terminals",
   "author": {
     "name": "dazebug",
@@ -23,13 +23,7 @@
     "mode": {
       "type": "string",
       "title": "How to show math",
-      "description": "auto draws pictures in terminals that show kitty-graphics pictures (Ghostty, cmux, kitty; not inside tmux) and writes Unicode text elsewhere. on always draws pictures, text always writes Unicode, off leaves the LaTeX as written.",
-      "options": [
-        "auto",
-        "on",
-        "text",
-        "off"
-      ],
+      "description": "auto (the default) draws pictures in terminals that show kitty-graphics pictures (Ghostty, cmux, kitty; not inside tmux) and writes Unicode text elsewhere. on always draws pictures, text always writes Unicode, off leaves the LaTeX as written.",
       "default": "auto"
     },
     "teach_claude": {
@@ -47,11 +41,7 @@
     "font_metrics": {
       "type": "string",
       "title": "Terminal font geometry",
-      "description": "auto reads your terminal's font from its config (Ghostty, cmux, kitty) and works out the three numbers below the way the terminal does; they apply only when that fails. manual always uses them.",
-      "options": [
-        "auto",
-        "manual"
-      ],
+      "description": "auto (the default) reads your terminal's font from its config (Ghostty, cmux, kitty) and works out the three numbers below the way the terminal does; they apply only when that fails. manual always uses them.",
       "default": "auto"
     },
     "cell_aspect": {

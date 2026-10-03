@@ -217,7 +217,7 @@ export const register: Register = (on, options) => {
       ink: inkFor(typeof settings.theme === 'string' ? settings.theme : undefined, stringOption(options, 'color', 'auto')),
     }
     fontReport = 'set by hand (font_metrics is manual)'
-    if (config.style === 'pictures' && stringOption(options, 'font_metrics', 'auto') === 'auto') {
+    if (config.style === 'pictures' && stringOption(options, 'font_metrics', 'auto') !== 'manual') {
       const isGhostty = env.TERM_PROGRAM === 'ghostty' || env.TERM === 'xterm-ghostty'
       const isKitty = Boolean(env.TERM?.includes('kitty')) || Boolean(env.KITTY_WINDOW_ID)
       if (isGhostty || isKitty) await detectFont($, isGhostty ? 'ghostty' : 'kitty')

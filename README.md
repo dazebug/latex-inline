@@ -106,6 +106,9 @@ The result is an approximation: tall structures such as matrices, `cases` and mu
 - **Writes**: the PNG pictures and a small JSON record per formula in `$XDG_CACHE_HOME/latex-inline` (`~/.cache/latex-inline` by default). Delete that folder at any time to clear the cache.
 - **Reads**: those cache files; your terminal's config file (`~/.config/ghostty/config` and its macOS and `.ghostty` variants, or `~/.config/kitty/kitty.conf`); the headers of the font files in your font folders, to find and measure the terminal font; your environment's `TERM`, `TERM_PROGRAM`, `KITTY_WINDOW_ID`, `TMUX`, `HOME`, `XDG_CACHE_HOME` and `XDG_CONFIG_HOME`; Claude Code's `theme` setting; and, only for text inside `\text{}` that the math font has no glyph for, one CJK system font.
 - **Network**: none at run time. Claude Code downloads the npm packages pinned in `package-lock.json` (`mathjax`, `@mathjax/mathjax-fira-font`, `@resvg/resvg-js`) when it installs the plugin.
+- **Sends**: nothing leaves your machine. The formulas go to the local `node` renderer on its standard input, and the pictures come back as files in the cache folder.
+- **Credentials**: none are read.
+- **Hooks**: `session.start` works out how this terminal shows math, measures the font for pictures and registers `/latex-inline`; `command.run` answers `/latex-inline`; `prompt.compose` adds the math-writing section described above; `ui.render`, on assistant messages only, redraws a reply that holds math, or rewrites its math as Unicode text, and leaves the stored message as it was.
 - **Changes to Claude**: the math-writing section in the system prompt described above, only where the plugin draws pictures, and the `/latex-inline` command. The Unicode text is computed in the plugin itself and runs nothing.
 
 ## When a formula can't be drawn
