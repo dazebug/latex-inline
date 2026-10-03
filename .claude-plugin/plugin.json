@@ -9,6 +9,9 @@
   },
   "homepage": "https://github.com/dazebug/latex-inline",
   "repository": "https://github.com/dazebug/latex-inline",
+  "documentationUrl": "https://github.com/dazebug/latex-inline#readme",
+  "supportUrl": "https://github.com/dazebug/latex-inline/issues",
+  "privacyPolicyUrl": "https://github.com/dazebug/latex-inline#privacy",
   "license": "MIT",
   "keywords": [
     "latex",

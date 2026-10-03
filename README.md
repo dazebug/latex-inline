@@ -100,6 +100,10 @@ Where pictures can't be shown, each formula is converted to plain text that a te
 
 The result is an approximation: tall structures such as matrices, `cases` and multi-line `aligned` blocks come out on one line, with rows separated by semicolons. A command it doesn't know is shown as written.
 
+## Privacy
+
+LaTeX Inline collects no data and sends nothing off your machine: it has no server and makes no network requests. Formulas are rendered by a local `node` process and kept as pictures in your cache folder. Everything it runs, reads and writes is listed below.
+
 ## What it runs, reads and writes
 
 - **Runs**: where it draws pictures, `node bin/font-metrics.mjs` once at session start when `font_metrics` is `auto`, and `node bin/render.mjs` from the plugin folder once per batch of new formulas, with the formulas on its standard input. The renderer lays each formula out with MathJax and rasterizes it to PNG with [resvg](https://github.com/RazrFalcon/resvg). Nothing else is run.
