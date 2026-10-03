@@ -1,6 +1,6 @@
 {
   "name": "latex-inline",
-  "description": "LaTeX Inline: typeset math in Claude Code replies inside Ghostty, cmux and kitty",
+  "description": "LaTeX Inline: typeset math in Claude Code replies, as pictures in Ghostty, cmux and kitty and as Unicode text in other terminals",
   "owner": {
     "name": "dazebug",
     "url": "https://github.com/dazebug"
@@ -9,7 +9,7 @@
     {
       "name": "latex-inline",
       "source": "./",
-      "description": "Typesets the LaTeX math in Claude's replies as pictures inside the terminal, inline with the text, in Ghostty, cmux and kitty"
+      "description": "Shows the LaTeX math in Claude's replies typeset: as pictures inline with the text in Ghostty, cmux and kitty, and as Unicode text in other terminals"
     }
   ]
 }

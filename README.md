@@ -1,21 +1,20 @@
 # LaTeX Inline
 
-LaTeX Inline typesets the math in Claude's replies right inside your terminal. When Claude writes `$e^{i\pi} + 1 = 0$` in the middle of a sentence, you see the typeset formula in that sentence, at the size of the text around it, instead of the raw source. Display math (`$$...$$`) is drawn centered on its own lines. It is a Claude Code [mod](https://code.claude.com/docs/en/plugins/mods/overview): it redraws each reply that contains math and leaves every other reply to Claude Code.
+LaTeX Inline typesets the math in Claude's replies right inside your terminal. When Claude writes `$e^{i\pi} + 1 = 0$` in the middle of a sentence, you see the typeset formula in that sentence, at the size of the text around it, instead of the raw source. Display math (`$$...$$`) is drawn centered on its own lines. In terminals that can't show pictures, the same math is written as Unicode text instead: `e^(iπ) + 1 = 0`, `x = (−b ± √(b² − 4ac))/2a`. It is a Claude Code [mod](https://code.claude.com/docs/en/plugins/mods/overview): it redraws each reply that contains math and leaves every other reply to Claude Code.
 
 ![A Claude Code reply in Ghostty with Euler's identity, the Gaussian integral, the Basel problem and the golden ratio inline in the text, the Fourier transform and Maxwell's equations as display math, and Bayes' theorem, softmax and the Cauchy–Schwarz inequality in a list](docs/screenshot.png)
 
 *Ghostty with its default font (JetBrains Mono, 13pt) and the plugin's default settings.*
 
-Formulas are laid out by [MathJax](https://www.mathjax.org/) with the Fira Math font and drawn through the kitty graphics protocol, so they need a terminal that shows pictures that way: [Ghostty](https://ghostty.org/), cmux (built on Ghostty) or [kitty](https://sw.kovidgoyal.net/kitty/).
+Formulas are laid out by [MathJax](https://www.mathjax.org/) with the Fira Math font and drawn through the kitty graphics protocol, so pictures need a terminal that shows them that way: [Ghostty](https://ghostty.org/), cmux (built on Ghostty) or [kitty](https://sw.kovidgoyal.net/kitty/). Everywhere else, including iTerm2, WezTerm, Terminal.app and anything inside tmux, you get the Unicode text.
 
 ## Requirements
 
 - Claude Code 2.1.287 or later, in a terminal session
-- Ghostty, cmux or kitty, not inside tmux, which does not pass the pictures through
-- Node.js 18 or later with npm on your `PATH`: Claude Code uses npm to install the renderer's packages when it installs the plugin, and the plugin runs its renderer with `node`
+- For pictures: Ghostty, cmux or kitty, not inside tmux, which does not pass the pictures through; and Node.js 18 or later with npm on your `PATH`: Claude Code uses npm to install the renderer's packages when it installs the plugin, and the plugin runs its renderer with `node`
 - macOS or Linux
 
-In any other terminal, and in the Desktop app, VS Code and `claude -p`, the plugin stays out of the way: replies are drawn as usual and Claude is not told to write LaTeX.
+The Unicode text needs nothing beyond Claude Code. In the Desktop app, VS Code and `claude -p`, the plugin stays out of the way: replies are drawn as usual.
 
 ## Install
 
@@ -28,14 +27,14 @@ Start a new session, or run `/reload-plugins` in an open one. `/plugin` then lis
 
 ## Writing math
 
-The plugin adds a short section to Claude's system prompt, only in sessions where it can draw, that asks Claude to write math this way. You can write the same way in your own messages, and set `teach_claude` to `false` if you would rather instruct Claude yourself.
+The plugin adds a short section to Claude's system prompt, only in sessions where it draws pictures, that asks Claude to write math this way. Where it writes Unicode text it asks nothing, so Claude writes math as it otherwise would, and the LaTeX it does write is converted. You can write the same way in your own messages, and set `teach_claude` to `false` if you would rather instruct Claude yourself.
 
 - Inline math goes between single dollars: `$x^2$`. Put no space right after the opening `$` or right before the closing one, so `$20 and $30` stays text.
 - Display math goes between double dollars in a paragraph of its own, with blank lines before and after.
-- Math is drawn in paragraphs and list items. Math inside tables, headings, block quotes, code spans and code blocks is left as text.
+- Math is drawn as pictures in paragraphs and list items. Math inside tables, headings and block quotes, where a picture can't go, is written as Unicode text. Math inside code spans and code blocks is left as written.
 - `\(...\)` and `\[...\]` work too. MathJax supports the AMS environments (`aligned`, `cases`, `pmatrix`, ...), and `\text{}` takes any script, including Hangul and kana.
 
-If you turn `teach_claude` off, or want the rule in every session regardless of the terminal, add this to your `CLAUDE.md`:
+If you turn `teach_claude` off, or want Claude to write LaTeX in every session regardless of the terminal, add this to your `CLAUDE.md`:
 
 ```markdown
 - Write math in LaTeX: inline as `$...$`, display as `$$...$$` in a paragraph of its own with blank lines around it. No space right after the opening `$` or right before the closing `$`. Do not use Unicode symbols such as α, ² or ≤ in place of LaTeX. Keep formulas out of tables, headings, block quotes and code; put dollar amounts and shell variables in code spans. Move long formulas and stacked fractions to display math.
@@ -47,8 +46,8 @@ Set options with `/plugin configure latex-inline@latex-inline` or in the `/confi
 
 | Option | Default | What it does |
 | :- | :- | :- |
-| `mode` | `auto` | `auto` draws only in Ghostty, cmux and kitty outside tmux. `on` draws in any terminal, `off` never. |
-| `teach_claude` | `true` | Adds the math-writing section to the system prompt where the plugin draws. |
+| `mode` | `auto` | `auto` draws pictures in Ghostty, cmux and kitty outside tmux, and writes Unicode text in other terminals. `on` always draws pictures, `text` always writes Unicode text, `off` leaves the LaTeX as written. |
+| `teach_claude` | `true` | Adds the math-writing section to the system prompt where the plugin draws pictures. |
 | `node_path` | `node` | The Node.js executable that runs the renderer. |
 | `font_metrics` | `auto` | `auto` measures your terminal font at session start (below). `manual` always uses the next three options. |
 | `cell_aspect` | `2.125` | Your terminal cell's height divided by its width, in pixels. |
@@ -89,33 +88,46 @@ To work the numbers out by hand for another font, take its units per em `u`, asc
 - baseline from the bottom `B = round((g / 2 − d) × p − (H − (a − d + g) × p) / 2)` pixels
 - `cell_aspect = H / W`, `baseline = (H − B) / H`, `line_height = H / (s × scale)`
 
+## Unicode text
+
+Where pictures can't be shown, each formula is converted to plain text that a terminal font can draw:
+
+- Symbols become their characters: `\alpha` is α, `\le` is ≤, `\mathbb{R}` is ℝ, `\mathcal{L}` is ℒ, `\hat{y}` is ŷ.
+- Superscripts and subscripts use Unicode's small letters where it has them all, as in x², θ⁽ᵗ⁺¹⁾ and ∑ᵢ₌₁ⁿ. Where it doesn't, they are written after `^` or `_`, as in e^(iπ) and 𝔼_(x∼p).
+- Fractions and roots go on one line, with parentheses where needed: `\frac{1}{1+e^{-x}}` is 1/(1 + e⁻ˣ), `\sqrt{x+1}` is √(x + 1).
+- Spacing follows TeX: binary operators and relations get a space on each side, a leading sign does not.
+- A formula alone in its paragraph is centered.
+
+The result is an approximation: tall structures such as matrices, `cases` and multi-line `aligned` blocks come out on one line, with rows separated by semicolons. A command it doesn't know is shown as written.
+
 ## What it runs, reads and writes
 
-- **Runs**: `node bin/font-metrics.mjs` once at session start when `font_metrics` is `auto`, and `node bin/render.mjs` from the plugin folder once per batch of new formulas, with the formulas on its standard input. The renderer lays each formula out with MathJax and rasterizes it to PNG with [resvg](https://github.com/RazrFalcon/resvg). Nothing else is run.
+- **Runs**: where it draws pictures, `node bin/font-metrics.mjs` once at session start when `font_metrics` is `auto`, and `node bin/render.mjs` from the plugin folder once per batch of new formulas, with the formulas on its standard input. The renderer lays each formula out with MathJax and rasterizes it to PNG with [resvg](https://github.com/RazrFalcon/resvg). Nothing else is run.
 - **Writes**: the PNG pictures and a small JSON record per formula in `$XDG_CACHE_HOME/latex-inline` (`~/.cache/latex-inline` by default). Delete that folder at any time to clear the cache.
 - **Reads**: those cache files; your terminal's config file (`~/.config/ghostty/config` and its macOS and `.ghostty` variants, or `~/.config/kitty/kitty.conf`); the headers of the font files in your font folders, to find and measure the terminal font; your environment's `TERM`, `TERM_PROGRAM`, `KITTY_WINDOW_ID`, `TMUX`, `HOME`, `XDG_CACHE_HOME` and `XDG_CONFIG_HOME`; Claude Code's `theme` setting; and, only for text inside `\text{}` that the math font has no glyph for, one CJK system font.
 - **Network**: none at run time. Claude Code downloads the npm packages pinned in `package-lock.json` (`mathjax`, `@mathjax/mathjax-fira-font`, `@resvg/resvg-js`) when it installs the plugin.
-- **Changes to Claude**: the math-writing section in the system prompt described above, only where the plugin draws, and the `/latex-inline` command.
+- **Changes to Claude**: the math-writing section in the system prompt described above, only where the plugin draws pictures, and the `/latex-inline` command. The Unicode text is computed in the plugin itself and runs nothing.
 
 ## When a formula can't be drawn
 
 - A formula MathJax can't parse, or one that uses an unknown command, shows its LaTeX source, dimmed, in its place. The rest of the reply is still drawn.
 - If the renderer can't run at all (no `node`, missing packages), every formula shows its source dimmed, and the plugin tries again in the next session.
 - While a new formula renders, its source shows for a moment and is then replaced.
-- If a reply with math holds a single block of text or code longer than 10,000 characters, the plugin leaves that whole reply to Claude Code, which shows its LaTeX as text.
+- If a reply with math holds a single block of text or code longer than 10,000 characters, the whole reply is written as Unicode text.
 
 ## Limitations
 
-- Copying a reply out of the terminal copies the picture placeholders, not the LaTeX.
+- Copying a reply out of the terminal copies the picture placeholders or the Unicode text, not the LaTeX.
+- Claude's thinking, shown with ctrl+o, keeps its LaTeX as written: Claude Code gives mods no way to redraw it.
 - Inline code, bold text and links in a paragraph that holds math are drawn by the plugin, close to but not exactly like Claude Code's own drawing.
 
 ## Troubleshooting
 
-Run `/latex-inline` first: it says whether the plugin draws in this terminal, which font it measured and the cell it uses. For more, start Claude Code with `claude --debug` and search the debug log for `latex-inline`. A line ending in `not loaded:` says why the mod did not load, and a `ui.render (AssistantMessage) refused` line names a drawing Claude Code rejected.
+Run `/latex-inline` first: it says whether the plugin draws pictures or writes Unicode text in this terminal and, for pictures, which font it measured and the cell it uses. For more, start Claude Code with `claude --debug` and search the debug log for `latex-inline`. A line ending in `not loaded:` says why the mod did not load, and a `ui.render (AssistantMessage) refused` line names a drawing Claude Code rejected.
 
 ## Development
 
-Load your clone for one session with `claude --plugin-dir ./latex-inline`; Claude Code doesn't install the packages for a plugin loaded in place, so run `npm ci --ignore-scripts` in the clone first. `claude plugin test` runs the parser and helper tests, and `node --test tests/font-metrics.test.mjs` the font measuring tests.
+Load your clone for one session with `claude --plugin-dir ./latex-inline`; Claude Code doesn't install the packages for a plugin loaded in place, so run `npm ci --ignore-scripts` in the clone first. `claude plugin test` runs the parser, converter and hook tests, and `node --test tests/font-metrics.test.mjs` the font measuring tests.
 
 ## License
 

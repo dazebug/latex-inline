@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { splitMarkdown } from '../hooks/parse'
-import { canDrawImages, inkFor } from '../hooks/support'
+import { cellWidth, inkFor, mathStyle } from '../hooks/support'
 
 test('markdown longer than the element limit splits at blank lines', async () => {
   const text = ['a'.repeat(6), 'b'.repeat(6), 'c'.repeat(6)].join('\n\n')
@@ -13,14 +13,23 @@ test('a single block longer than the limit cannot be split', async () => {
   expect(splitMarkdown(`${'x'.repeat(20)}\n\nshort`, 10)).toBeNull()
 })
 
-test('pictures are drawn only where the terminal shows kitty graphics', async () => {
-  expect(canDrawImages({ TERM_PROGRAM: 'ghostty' }, 'auto')).toBe(true)
-  expect(canDrawImages({ TERM: 'xterm-kitty' }, 'auto')).toBe(true)
-  expect(canDrawImages({ KITTY_WINDOW_ID: '1' }, 'auto')).toBe(true)
-  expect(canDrawImages({ TERM_PROGRAM: 'ghostty', TMUX: '/tmp/tmux-501/default,1,0' }, 'auto')).toBe(false)
-  expect(canDrawImages({ TERM_PROGRAM: 'iTerm.app' }, 'auto')).toBe(false)
-  expect(canDrawImages({ TERM_PROGRAM: 'iTerm.app' }, 'on')).toBe(true)
-  expect(canDrawImages({ TERM_PROGRAM: 'ghostty' }, 'off')).toBe(false)
+test('pictures where the terminal shows kitty graphics, Unicode text elsewhere', async () => {
+  expect(mathStyle({ TERM_PROGRAM: 'ghostty' }, 'auto')).toBe('pictures')
+  expect(mathStyle({ TERM: 'xterm-kitty' }, 'auto')).toBe('pictures')
+  expect(mathStyle({ KITTY_WINDOW_ID: '1' }, 'auto')).toBe('pictures')
+  expect(mathStyle({ TERM_PROGRAM: 'ghostty', TMUX: '/tmp/tmux-501/default,1,0' }, 'auto')).toBe('text')
+  expect(mathStyle({ TERM_PROGRAM: 'iTerm.app' }, 'auto')).toBe('text')
+  expect(mathStyle({}, 'auto')).toBe('text')
+  expect(mathStyle({ TERM_PROGRAM: 'iTerm.app' }, 'on')).toBe('pictures')
+  expect(mathStyle({ TERM_PROGRAM: 'ghostty' }, 'text')).toBe('text')
+  expect(mathStyle({ TERM_PROGRAM: 'ghostty' }, 'off')).toBe('off')
+})
+
+test('terminal cells: wide scripts take two, combining marks none', async () => {
+  expect(cellWidth('abc')).toBe(3)
+  expect(cellWidth('합은')).toBe(4)
+  expect(cellWidth('y\u0302')).toBe(1)
+  expect(cellWidth('A\u0305B\u0305')).toBe(2)
 })
 
 test('ink follows the theme unless a color is set', async () => {

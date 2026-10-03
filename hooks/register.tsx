@@ -1,7 +1,8 @@
 import type { EngineInterface, Register } from 'claude-code'
 
 import { glueTokens, parseBlocks, splitMarkdown, type Token } from './parse'
-import { canDrawImages, inkFor, type Ink } from './support'
+import { cellWidth, inkFor, mathStyle, type Ink, type MathStyle } from './support'
+import { unicodeMath } from './unicode'
 
 // Part of every cache key: bump it when bin/render.mjs draws differently.
 const VERSION = 8
@@ -18,7 +19,7 @@ const MATH_INSTRUCTION = [
   'This terminal typesets TeX math in your replies (the latex-inline plugin draws it as pictures with MathJax).',
   'Write every formula and mathematical symbol in LaTeX: inline math as $...$ and display math as $$...$$ in a paragraph of its own, with blank lines before and after.',
   'Put no space right after the opening $ or right before the closing $. Do not write Unicode symbols such as α, ² or ≤ in place of LaTeX.',
-  'Math inside tables, headings, block quotes, code spans and code blocks is not drawn: keep formulas in paragraphs and list items, and put dollar amounts and shell variables in code spans so they are not read as math.',
+  'Math inside tables, headings and block quotes is written as Unicode text instead of drawn, and math in code spans and code blocks is left as written: keep formulas in paragraphs and list items where you can, and put dollar amounts and shell variables in code spans so they are not read as math.',
   'Move long formulas and stacked fractions to display math. AMS environments such as aligned, cases and pmatrix work, and \\text{} takes any script.',
 ].join('\n')
 
@@ -49,7 +50,7 @@ let style = {
   displayScale: 2.18,
   fontFamily: 'fira',
 }
-let config = { node: 'node', cacheDir: '', canDraw: false, teach: true, ink: inkFor(undefined, 'auto') as Ink }
+let config = { node: 'node', cacheDir: '', style: 'off' as MathStyle, teach: true, ink: inkFor(undefined, 'auto') as Ink }
 // What bin/font-metrics.mjs made of the terminal's font, for /latex-inline.
 let fontReport = 'not looked up'
 
@@ -108,25 +109,6 @@ async function detectFont($: EngineInterface, terminal: string): Promise<void> {
 
 function isPicture(entry: Entry | undefined): entry is Picture {
   return entry !== undefined && 'file' in entry
-}
-
-// Terminal cells a string takes: Hangul, CJK and emoji take two.
-function cellWidth(text: string): number {
-  let width = 0
-  for (const ch of text) {
-    const c = ch.codePointAt(0) ?? 0
-    const isWide =
-      (c >= 0x1100 && c <= 0x115f) ||
-      (c >= 0x2e80 && c <= 0xa4cf) ||
-      (c >= 0xac00 && c <= 0xd7a3) ||
-      (c >= 0xf900 && c <= 0xfaff) ||
-      (c >= 0xfe30 && c <= 0xfe4f) ||
-      (c >= 0xff00 && c <= 0xff60) ||
-      (c >= 0xffe0 && c <= 0xffe6) ||
-      (c >= 0x1f300 && c <= 0x1faff)
-    width += isWide ? 2 : 1
-  }
-  return width
 }
 
 // How many rows the first wrapped line of a flow takes, found by laying the
@@ -192,6 +174,22 @@ async function drain($: EngineInterface): Promise<void> {
   $.ui.invalidate('ui.render')
 }
 
+// Replies converted for the text style, by width and text: every redraw
+// draws a reply again.
+const converted = new Map<string, string>()
+
+function unicodeReply(text: string, width: number | undefined): string {
+  if (!text.includes('$') && !text.includes('\\(') && !text.includes('\\[')) return text
+  const key = `${width ?? ''}|${text}`
+  const known = converted.get(key)
+  if (known !== undefined) return known
+  const result = unicodeMath(text, width)
+  const oldest = converted.keys().next().value
+  if (converted.size >= 200 && oldest !== undefined) converted.delete(oldest)
+  converted.set(key, result)
+  return result
+}
+
 export const register: Register = (on, options) => {
   style = {
     ...style,
@@ -214,18 +212,18 @@ export const register: Register = (on, options) => {
     config = {
       node: stringOption(options, 'node_path', 'node'),
       cacheDir: `${cacheHome}/latex-inline/v${VERSION}`,
-      canDraw: canDrawImages(env, stringOption(options, 'mode', 'auto')),
+      style: mathStyle(env, stringOption(options, 'mode', 'auto')),
       teach: options.teach_claude !== false,
       ink: inkFor(typeof settings.theme === 'string' ? settings.theme : undefined, stringOption(options, 'color', 'auto')),
     }
     fontReport = 'set by hand (font_metrics is manual)'
-    if (config.canDraw && stringOption(options, 'font_metrics', 'auto') === 'auto') {
+    if (config.style === 'pictures' && stringOption(options, 'font_metrics', 'auto') === 'auto') {
       const isGhostty = env.TERM_PROGRAM === 'ghostty' || env.TERM === 'xterm-ghostty'
       const isKitty = Boolean(env.TERM?.includes('kitty')) || Boolean(env.KITTY_WINDOW_ID)
       if (isGhostty || isKitty) await detectFont($, isGhostty ? 'ghostty' : 'kitty')
       else fontReport = 'no font rules for this terminal; using the settings'
     }
-    if (config.canDraw) {
+    if (config.style === 'pictures') {
       $.clock.every(200, () => {
         void drain($)
       })
@@ -238,8 +236,13 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'latex-inline' }, async () => {
+    if (config.style === 'off') return { text: 'Math: left as LaTeX (mode is off)' }
+    if (config.style === 'text') {
+      const why = stringOption(options, 'mode', 'auto') === 'text' ? 'mode is text' : 'this terminal shows no kitty-graphics pictures'
+      return { text: `Math: written as Unicode text (${why})` }
+    }
     const lines = [
-      `Drawing math: ${config.canDraw ? 'yes' : 'no (this terminal shows no kitty-graphics pictures, or mode is off)'}`,
+      'Math: drawn as pictures',
       `Terminal font: ${fontReport}`,
       `Cell: height/width ${style.cellRatio.toFixed(3)}, baseline at ${style.baseline.toFixed(3)} of the height, ${style.lineEm.toFixed(3)} em tall`,
       `Sizes: inline ${style.mathScale} em, display ${style.displayScale} em`,
@@ -250,22 +253,30 @@ export const register: Register = (on, options) => {
 
   on('prompt.compose', async ($, e, next) => {
     const composed = await next(e)
-    if (!config.canDraw || !config.teach || !e.surfaces.includes('terminal')) return composed
+    if (config.style !== 'pictures' || !config.teach || !e.surfaces.includes('terminal')) return composed
     return { sections: [...composed.sections, { id: 'latex-inline:math', text: MATH_INSTRUCTION, scope: 'session' as const }] }
   })
 
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
-    if (e.surface !== 'terminal' || !config.canDraw) return next(e)
+    if (e.surface !== 'terminal' || config.style === 'off') return next(e)
+    const width = e.viewport === undefined ? undefined : e.viewport.columns - 2
+    // Math no picture reaches is written as Unicode text: all of it in the
+    // text style, and in tables, headings and block quotes in the picture one.
+    const asUnicode = () => {
+      const text = unicodeReply(e.props.text, width)
+      return text === e.props.text ? next(e) : next({ ...e, props: { ...e.props, text } })
+    }
+    if (config.style === 'text') return asUnicode()
     const blocks = parseBlocks(e.props.text)
-    if (!blocks.some(block => block.kind !== 'markdown')) return next(e)
+    if (!blocks.some(block => block.kind !== 'markdown')) return asUnicode()
 
     // A markdown block too long for one Markdown element is drawn in pieces;
-    // one that cannot be cut leaves the whole reply to the engine.
+    // one that cannot be cut leaves the whole reply to the engine, in Unicode.
     const markdownPieces = new Map<number, string[]>()
     for (const [index, block] of blocks.entries()) {
       if (block.kind !== 'markdown') continue
-      const pieces = splitMarkdown(block.text, MARKDOWN_LIMIT)
-      if (pieces === null) return next(e)
+      const pieces = splitMarkdown(unicodeMath(block.text, width), MARKDOWN_LIMIT)
+      if (pieces === null) return asUnicode()
       markdownPieces.set(index, pieces)
     }
 
@@ -334,13 +345,13 @@ export const register: Register = (on, options) => {
         const boxes = group.map(boxOf)
         return { columns: boxes.reduce((sum, box) => sum + box.columns, 0), rows: Math.max(1, ...boxes.map(box => box.rows)) }
       })
-    const width = (e.viewport?.columns ?? 80) - 2
+    const lineWidth = width ?? 78
     const first = blocks[0]
     let firstRows = 1
-    if (first?.kind === 'para') firstRows = firstLineRows(groupBoxes(first.tokens), width)
+    if (first?.kind === 'para') firstRows = firstLineRows(groupBoxes(first.tokens), lineWidth)
     if (first?.kind === 'list' && first.items[0]) {
       const item = first.items[0]
-      firstRows = firstLineRows(groupBoxes(item.tokens), width - cellWidth(item.prefix))
+      firstRows = firstLineRows(groupBoxes(item.tokens), lineWidth - cellWidth(item.prefix))
     }
     if (first?.kind === 'display') {
       const entry = pictures.get(keyOf({ tex: first.tex, display: true }))
