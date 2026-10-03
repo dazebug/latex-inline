@@ -136,6 +136,12 @@ Run `/latex-inline` first: it says whether the plugin draws pictures or writes U
 
 Load your clone for one session with `claude --plugin-dir ./latex-inline`; Claude Code doesn't install the packages for a plugin loaded in place, so run `npm ci --ignore-scripts` in the clone first. `claude plugin test` runs the parser, converter and hook tests, and `node --test tests/font-metrics.test.mjs` the font measuring tests.
 
+## Acknowledgements
+
+- The cache file names come from [cyrb53](https://github.com/bryc/code/blob/master/jshash/experimental/cyrb53.js), bryc's public-domain string hash.
+- The terminal cell is measured the way [Ghostty](https://github.com/ghostty-org/ghostty) (MIT) computes it in `src/font/Metrics.zig`.
+- Formulas are laid out by [MathJax](https://www.mathjax.org/) in the [Fira Math](https://github.com/firamath/firamath) font and rasterized by [resvg](https://github.com/RazrFalcon/resvg).
+
 ## License
 
 MIT, see [LICENSE](LICENSE). The renderer's packages, installed from npm, keep their own licenses: MathJax and its fonts (Apache-2.0, with the Fira fonts under the SIL Open Font License) and resvg-js (MPL-2.0).

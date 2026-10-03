@@ -11,8 +11,10 @@
 // font's tables: the widest advance among printable ASCII is the width, and
 // ascent + descent + line gap the height, both rounded to whole pixels at the
 // font size times the display scale; the baseline sits where the font's
-// box, centered in that rounded height, puts it. kitty rounds differently,
-// so for kitty the unrounded design metrics stand in.
+// box, centered in that rounded height, puts it. This follows Ghostty's own
+// computation (MIT), in src/font/Metrics.zig and the face code of v1.3.1:
+// https://github.com/ghostty-org/ghostty/blob/v1.3.1/src/font/Metrics.zig
+// kitty rounds differently, so for kitty the unrounded design metrics stand in.
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
