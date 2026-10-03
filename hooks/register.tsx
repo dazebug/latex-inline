@@ -64,8 +64,8 @@ function stringOption(options: Options, key: string, fallback: string): string {
   return typeof value === 'string' && value !== '' ? value : fallback
 }
 
-// cyrb53 by bryc (https://github.com/bryc/code/blob/master/jshash/experimental/cyrb53.js,
-// public domain): a short stable key for the cache file names.
+// cyrb53 by bryc, public domain (linked in the README): a short stable key
+// for the cache file names.
 function keyOf(job: Job): string {
   const s = `${VERSION}|${JSON.stringify(style)}|${config.ink.math}|${job.display ? 'd' : 'i'}|${job.tex}`
   let h1 = 0xdeadbeef
