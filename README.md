@@ -8,6 +8,8 @@ LaTeX Inline typesets the math in Claude's replies right inside your terminal. W
 
 Formulas are laid out by [MathJax](https://www.mathjax.org/) with the Fira Math font and drawn through the kitty graphics protocol, so pictures need a terminal that shows them that way: [Ghostty](https://ghostty.org/), cmux (built on Ghostty) or [kitty](https://sw.kovidgoyal.net/kitty/). Everywhere else, including iTerm2, WezTerm, Terminal.app and anything inside tmux, you get the Unicode text.
 
+It works beside [Mermaid Inline](https://github.com/dazebug/mermaid-inline): in a reply that holds both math and diagrams, each plugin draws its own part, whichever runs first.
+
 ## Requirements
 
 - Claude Code 2.1.287 or later, in a terminal session
@@ -112,7 +114,7 @@ LaTeX Inline collects no data and sends nothing off your machine: it has no serv
 - **Network**: none at run time. Claude Code downloads the npm packages pinned in `package-lock.json` (`mathjax`, `@mathjax/mathjax-fira-font`, `@resvg/resvg-js`) when it installs the plugin.
 - **Sends**: nothing leaves your machine. The formulas go to the local `node` renderer on its standard input, and the pictures come back as files in the cache folder.
 - **Credentials**: none are read.
-- **Hooks**: `session.start` works out how this terminal shows math, measures the font for pictures and registers `/latex-inline`; `command.run` answers `/latex-inline`; `prompt.compose` adds the math-writing section described above; `ui.render`, on assistant messages only, redraws a reply that holds math, or rewrites its math as Unicode text, and leaves the stored message as it was.
+- **Hooks**: `session.start` works out how this terminal shows math, measures the font for pictures and registers `/latex-inline`; `command.run` answers `/latex-inline`; `prompt.compose` adds the math-writing section described above; `ui.render`, on assistant messages only, draws the paragraphs, list items and display formulas that hold math and passes the rest of the reply, its math written as Unicode text, on to the next hook, so Claude Code and other mods such as Mermaid Inline draw it; where it writes Unicode text it passes the whole reply on that way. It leaves the stored message as it was.
 - **Changes to Claude**: the math-writing section in the system prompt described above, only where the plugin draws pictures, and the `/latex-inline` command. The Unicode text is computed in the plugin itself and runs nothing.
 
 ## When a formula can't be drawn
@@ -120,7 +122,6 @@ LaTeX Inline collects no data and sends nothing off your machine: it has no serv
 - A formula MathJax can't parse, or one that uses an unknown command, shows its LaTeX source, dimmed, in its place. The rest of the reply is still drawn.
 - If the renderer can't run at all (no `node`, missing packages), every formula shows its source dimmed, and the plugin tries again in the next session.
 - While a new formula renders, its source shows for a moment and is then replaced.
-- If a reply with math holds a single block of text or code longer than 10,000 characters, the whole reply is written as Unicode text.
 
 ## Limitations
 

@@ -1,7 +1,7 @@
 {
   "name": "latex-inline",
   "displayName": "LaTeX Inline",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Shows the LaTeX math in Claude's replies typeset: as pictures inline with the text in Ghostty, cmux and kitty, and as Unicode text in other terminals",
   "author": {
     "name": "dazebug",

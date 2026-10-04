@@ -4,7 +4,7 @@
 - 대상: `/Users/choongjaelee/mods/latex-inline-delegate-work`
 - 시작 커밋: `37376ae`
 - 기준 트리: `/Users/choongjaelee/mods/latex-inline-fix_delegate-markdown-runs` (`fix/delegate-markdown-runs`) · 작업 트리: `/Users/choongjaelee/mods/latex-inline-delegate-work` (`fix/delegate-markdown-runs`)
-- 현재: R1 · 마지막 승격 7685673 · 리뷰 중 없음 · 게이트 그린
+- 현재: R1 · 마지막 승격 a1c959a · 리뷰 중 없음 · 게이트 그린
 - 최근 검증자 판정: 미요청 · 원문 없음
 
 ## 배경 — 확인한 원천
@@ -66,9 +66,9 @@
 
 | # | 항목 | 부류 | 확정 결함 | 파일 집합 | 의존 | 상태 | 근거 | 승격 |
 |:--|:--|:--|:--|:--|:--|:--|:--|:--|
-| 1 | 그림 모드에서 전체 AssistantMessage 를 직접 그려 `next` 없이 끝내는 경로를 수식 블록 그림과 나머지 Markdown 위임으로 교체하고, 쓰이지 않는 분할 경로를 제거 | `ui.render` 체인 합성 | (a) 수식 포함 답변 전체를 직접 그려 `next` 없이 끝냄 (b) 위임 구간을 여러 번 나누면 답변 중간에 빈 줄이 낌 | `hooks/register.tsx`, `hooks/parse.ts`, `tests/render.test.ts`, `tests/support.test.ts` | — | verified | red: `claude plugin test` → 28 pass, 3 fail (`table beside drawn math`: `Received: []`; `math beside a Mermaid fence`: `Received: []`; `markdown block before math`: `Received: undefined`); toggle: `git apply -R .git/toggle.patch` + `claude plugin test` → 26 pass, 3 fail; restored: `git apply .git/toggle.patch` + `claude plugin test` → 29 pass, 0 fail; `node --test tests/font-metrics.test.mjs` → 4 pass, 0 fail; `claude plugin validate --strict .claude-plugin/plugin.json` → `Validation passed`<br>재실행(드라이버): `claude plugin test` → 29 pass, 0 fail(바깥 Mermaid 테스트 삭제 뒤 28) · `node --test tests/font-metrics.test.mjs` → 4 pass · `claude plugin validate --strict .claude-plugin/plugin.json` → Validation passed<br>실제 세션(드라이버, Haiku): latex 바깥(`CLAUDE_CODE_PLUGIN_DIRS=<clone>:<mermaid-inline clone>`) — 한 답변의 수식·다이어그램이 그림, 'latex-inline answered ui.render without next()' 0건 · mermaid 바깥(역순) — 수식·다이어그램이 그림 | |
-| 2 | mod 버전을 `0.3.1` 에서 `0.3.2` 로 올림 | 배포 metadata | — | `.claude-plugin/plugin.json` | 1의 계약과 acceptance 통과 | todo | | |
-| 3 | README 의 `ui.render` 설명에 수식 없는 구간을 다음 훅에 넘겨 Mermaid Inline 등과 한 답변을 나눠 그린다는 점을 넣고 10,000자 항목을 삭제 | 문서 | (a) Hooks 줄에 다음 훅 위임 설명이 없음 (b) 10,000자 답변 전체 Unicode fallback 설명이 새 경로에서는 사실과 다름 | `README.md` | 1의 계약과 acceptance 통과 | todo | | |
+| 1 | 그림 모드에서 전체 AssistantMessage 를 직접 그려 `next` 없이 끝내는 경로를 수식 블록 그림과 나머지 Markdown 위임으로 교체하고, 쓰이지 않는 분할 경로를 제거 | `ui.render` 체인 합성 | (a) 수식 포함 답변 전체를 직접 그려 `next` 없이 끝냄 (b) 위임 구간을 여러 번 나누면 답변 중간에 빈 줄이 낌 | `hooks/register.tsx`, `hooks/parse.ts`, `tests/render.test.ts`, `tests/support.test.ts` | — | cleared | red: `claude plugin test` → 28 pass, 3 fail (`table beside drawn math`: `Received: []`; `math beside a Mermaid fence`: `Received: []`; `markdown block before math`: `Received: undefined`); toggle: `git apply -R .git/toggle.patch` + `claude plugin test` → 26 pass, 3 fail; restored: `git apply .git/toggle.patch` + `claude plugin test` → 29 pass, 0 fail; `node --test tests/font-metrics.test.mjs` → 4 pass, 0 fail; `claude plugin validate --strict .claude-plugin/plugin.json` → `Validation passed`<br>재실행(드라이버): `claude plugin test` → 29 pass, 0 fail(바깥 Mermaid 테스트 삭제 뒤 28) · `node --test tests/font-metrics.test.mjs` → 4 pass · `claude plugin validate --strict .claude-plugin/plugin.json` → Validation passed<br>실제 세션(드라이버, Haiku): latex 바깥(`CLAUDE_CODE_PLUGIN_DIRS=<clone>:<mermaid-inline clone>`) — 한 답변의 수식·다이어그램이 그림, 'latex-inline answered ui.render without next()' 0건 · mermaid 바깥(역순) — 수식·다이어그램이 그림 | |
+| 2 | mod 버전을 `0.3.1` 에서 `0.3.2` 로 올림 | 배포 metadata | — | `.claude-plugin/plugin.json` | 1의 계약과 acceptance 통과 | verified | 재실행(드라이버): `claude plugin validate --strict .claude-plugin/plugin.json` → Validation passed · `claude plugin test` → 28 pass, 0 fail (구현자 샌드박스는 strict 검증의 api.anthropic.com 접속이 막힌다) | |
+| 3 | README 의 `ui.render` 설명에 수식 없는 구간을 다음 훅에 넘겨 Mermaid Inline 등과 한 답변을 나눠 그린다는 점을 넣고 10,000자 항목을 삭제 | 문서 | (a) Hooks 줄에 다음 훅 위임 설명이 없음 (b) 10,000자 답변 전체 Unicode fallback 설명이 새 경로에서는 사실과 다름 | `README.md` | 1의 계약과 acceptance 통과 | verified | 재실행(드라이버): `claude plugin validate --strict .claude-plugin/plugin.json` → Validation passed · `claude plugin test` → 28 pass, 0 fail (구현자 샌드박스는 strict 검증의 api.anthropic.com 접속이 막힌다) | |
 
 ## 결정 원장
 
@@ -99,6 +99,15 @@
 | README Hooks 설명과 10,000자 fallback 항목 | 항목 3 | `README.md:115`, `README.md:123` |
 
 ## 라운드 로그
+
+### R1
+
+#### 리뷰 1 — 증분 · a1c959a
+
+- 차단: 없음
+- 수정: 없음
+- 실측: 드라이버 게이트 재실행 28 pass · 실제 세션 두 방향
+- 판정: "항목 1의 (a)(b) 막힘 확인. 수식 없는 구간은 모두 next로 가고, next 없이 답하는 경로는 수식 블록만 있는 답변뿐이다(의도). 새 표면의 우회 없음." → 항목 1 `cleared`.
 
 ### R0
 
