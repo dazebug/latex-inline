@@ -16,6 +16,10 @@ const LIST_ITEM = /^(\s*)([-*+]|\d+[.)])\s+/
 const WHITESPACE = /\s/
 const DIGIT = /[0-9]/
 
+function closesFence(line: string, fence: string): boolean {
+  return line.trim().startsWith(fence)
+}
+
 function isEscaped(s: string, i: number): boolean {
   let slashes = 0
   for (let k = i - 1; k >= 0 && s[k] === '\\'; k--) slashes++
@@ -129,7 +133,7 @@ function rawBlocks(lines: string[]): string[][] {
   for (const line of lines) {
     if (fence !== null) {
       current.push(line)
-      if (line.trim().startsWith(fence)) fence = null
+      if (closesFence(line, fence)) fence = null
       continue
     }
     const opening = FENCE.exec(line)
@@ -197,6 +201,80 @@ export function parseBlocks(text: string): Block[] {
 
 export function hasMath(text: string): boolean {
   return parseBlocks(text).some(block => block.kind !== 'markdown')
+}
+
+export type MarkdownRun = { kind: 'prose' | 'code'; text: string }
+
+// Separates prose and fenced code, leaving each fence whole and merging
+// consecutive blocks of the same kind for rendering as one run.
+export function splitMarkdownRuns(text: string): MarkdownRun[] {
+  const runs: MarkdownRun[] = []
+  let kind: MarkdownRun['kind'] = 'prose'
+  let current: string[] = []
+  let fence: string | null = null
+  const flush = () => {
+    if (current.length === 0) return
+    const text = current.join('\n')
+    const previous = runs[runs.length - 1]
+    if (previous?.kind === kind) previous.text += `\n\n${text}`
+    else runs.push({ kind, text })
+    current = []
+  }
+
+  for (const line of text.split('\n')) {
+    if (fence !== null) {
+      current.push(line)
+      if (closesFence(line, fence)) {
+        if (kind === 'code') {
+          flush()
+          kind = 'prose'
+        }
+        fence = null
+      }
+      continue
+    }
+
+    const opening = FENCE.exec(line)
+    if (opening) {
+      const isColumnZero = line.startsWith('```') || line.startsWith('~~~')
+      if (isColumnZero) {
+        flush()
+        kind = 'code'
+      }
+      current.push(line)
+      fence = opening[1] ?? '```'
+      continue
+    }
+
+    if (line.trim() === '') {
+      flush()
+      continue
+    }
+    current.push(line)
+  }
+  flush()
+  return runs
+}
+
+// Packs markdown into pieces of at most `limit` characters, the most one
+// Markdown element draws, cutting only between blocks so a code fence stays
+// whole; null when one block alone is longer.
+export function splitMarkdown(text: string, limit: number): string[] | null {
+  const pieces: string[] = []
+  let current = ''
+  for (const lines of rawBlocks(text.split('\n'))) {
+    const block = lines.join('\n')
+    if (block.length > limit) return null
+    const joined = current === '' ? block : `${current}\n\n${block}`
+    if (joined.length <= limit) {
+      current = joined
+    } else {
+      pieces.push(current)
+      current = block
+    }
+  }
+  if (current !== '') pieces.push(current)
+  return pieces
 }
 
 function spaceAfter(token: Token): boolean {

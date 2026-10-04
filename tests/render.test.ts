@@ -60,12 +60,11 @@ test('in picture mode, math in a table is written as Unicode', { options: { mode
 })
 
 test('in picture mode, a table beside drawn math is written as Unicode', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
-  const delegated: string[] = []
-  engine(on, { observe: props => delegated.push(props.text) })
+  engine(on)
   await $.session.start(SESSION)
   const text = `식 $x^2$ 입니다.\n\n${TABLE}`
-  await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } })
-  expect(delegated[0]).toBe(TABLE_UNICODE)
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } })
+  expect((await ui.find({ type: 'Markdown' }))?.props.text).toBe(TABLE_UNICODE)
 })
 
 const MERMAID = '```mermaid\ngraph TD\n  A --> B\n```'
@@ -103,9 +102,10 @@ test('in picture mode, a markdown block before math keeps the reply bullet', { o
   const delegated: RenderPropsOf['AssistantMessage'][] = []
   engine(on, { observe: props => delegated.push(props) })
   await $.session.start(SESSION)
-  await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text: '수식 없는 문단입니다.\n\n식 $x^2$ 입니다.', isFirstOfReply: true } })
-  expect(delegated[0]?.text).toBe('수식 없는 문단입니다.')
-  expect(delegated[0]?.isFirstOfReply).toBe(true)
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text: '수식 없는 문단입니다.\n\n식 $x^2$ 입니다.', isFirstOfReply: true } })
+  expect(delegated).toEqual([])
+  expect((await ui.find({ type: 'Markdown' }))?.props.text).toBe('수식 없는 문단입니다.')
+  expect((await ui.find({ type: 'Text', text: '⏺' }))?.text).toBe('⏺')
 })
 
 test('an outer Mermaid mod can keep math pictures on both sides of a diagram', { plugins: [OUTER_MERMAID], options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
@@ -123,7 +123,7 @@ test('an outer Mermaid mod can keep math pictures on both sides of a diagram', {
 test('a first delegated engine block gets a gutter when it does not open the reply', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
   engine(on, { engineElement: true })
   await $.session.start(SESSION)
-  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text: '수식 없는 문단입니다.\n\n식 $x^2$ 입니다.', isFirstOfReply: false } })
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text: '```python\nx = 1\n```\n\n식 $x^2$ 입니다.', isFirstOfReply: false } })
   const drawn = await ui.drawn()
   const firstRow = drawn.type === 'Box' ? drawn.children?.[0] : undefined
   expect(firstRow).toMatchObject({
@@ -138,4 +138,35 @@ test('a first delegated engine block gets a gutter when it does not open the rep
       },
     ],
   })
+})
+
+test('picture mode draws prose after math without sending it through the render chain', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  const delegated: string[] = []
+  engine(on, { observe: props => delegated.push(props.text) })
+  await $.session.start(SESSION)
+  const text = "The square is $x^2$.\n\nYou're close to the answer, but **check** the sign.\n\nDone."
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } })
+  expect(delegated).toEqual([])
+  expect((await ui.findAll({ type: 'Markdown' })).map(markdown => markdown.props.text)).toEqual(["You're close to the answer, but **check** the sign.\n\nDone."])
+})
+
+test('picture mode delegates only the Mermaid fence and draws its introduction as Markdown', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  const delegated: string[] = []
+  engine(on, { observe: props => delegated.push(props.text) })
+  await $.session.start(SESSION)
+  const text = `식 $x^2$ 입니다.\n\nHere is the diagram:\n\n${MERMAID}`
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } })
+  expect(delegated.length).toBeGreaterThan(0)
+  expect(new Set(delegated)).toEqual(new Set([MERMAID]))
+  expect((await ui.findAll({ type: 'Markdown' })).map(markdown => markdown.props.text)).toEqual(['Here is the diagram:'])
+})
+
+test('picture mode keeps an indented code fence inside its list prose', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  const delegated: string[] = []
+  engine(on, { observe: props => delegated.push(props.text) })
+  await $.session.start(SESSION)
+  const text = '1. 실행:\n\n   ```bash\n   echo hi\n   ```\n\n2. 식 $x^2$ 입니다.'
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } })
+  expect(delegated).toEqual([])
+  expect((await ui.findAll({ type: 'Markdown' })).map(markdown => markdown.props.text).join('\n\n')).toContain('   ```bash\n   echo hi\n   ```')
 })

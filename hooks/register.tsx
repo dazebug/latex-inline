@@ -1,6 +1,6 @@
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, RenderElement } from 'claude-code'
 
-import { glueTokens, parseBlocks, type Token } from './parse'
+import { glueTokens, parseBlocks, splitMarkdown, splitMarkdownRuns, type Block, type Token } from './parse'
 import { cellWidth, inkFor, mathStyle, type Ink, type MathStyle } from './support'
 import { unicodeMath } from './unicode'
 
@@ -9,6 +9,8 @@ const VERSION = 8
 // Pixels per terminal row in the pictures; the terminal scales each picture
 // to its cells, so this only sets how sharp they are.
 const ROW_PX = 64
+// The most text one Markdown element draws.
+const MARKDOWN_LIMIT = 10_000
 // Added to the system prompt where the mod can draw, so Claude writes math
 // the way the parser reads it.
 const MATH_INSTRUCTION = [
@@ -23,6 +25,7 @@ const MATH_INSTRUCTION = [
 type Picture = { file: string; columns: number; rows: number }
 type Entry = Picture | { error: string }
 type Job = { tex: string; display: boolean }
+type RenderBlock = Exclude<Block, { kind: 'markdown' }> | { kind: 'prose' | 'code'; text: string }
 type Options = Readonly<Record<string, unknown>>
 
 const entries = new Map<string, Entry>()
@@ -268,6 +271,23 @@ export const register: Register = (on, options) => {
     const blocks = parseBlocks(e.props.text)
     if (!blocks.some(block => block.kind !== 'markdown')) return asUnicode()
 
+    const renderBlocks: RenderBlock[] = []
+    for (const block of blocks) {
+      if (block.kind !== 'markdown') {
+        renderBlocks.push(block)
+        continue
+      }
+      for (const run of splitMarkdownRuns(block.text)) {
+        if (run.kind === 'code') {
+          renderBlocks.push({ kind: 'code', text: run.text })
+          continue
+        }
+        const pieces = splitMarkdown(unicodeMath(run.text, width), MARKDOWN_LIMIT)
+        if (pieces === null) return asUnicode()
+        for (const text of pieces) renderBlocks.push({ kind: 'prose', text })
+      }
+    }
+
     const pictures = new Map<string, Entry | undefined>()
     const jobs: Job[] = []
     for (const block of blocks) {
@@ -280,7 +300,7 @@ export const register: Register = (on, options) => {
       if (!pictures.has(key)) pictures.set(key, await lookup($, job))
     }
 
-    const { Box, Image, Text } = $.ui.resolve(e)
+    const { Box, Image, Markdown, Text } = $.ui.resolve(e)
 
     // A formula without a picture, still rendering or failed, shows its source dimmed.
     const picture = (job: Job, fallback: string) => {
@@ -331,7 +351,7 @@ export const register: Register = (on, options) => {
         return { columns: boxes.reduce((sum, box) => sum + box.columns, 0), rows: Math.max(1, ...boxes.map(box => box.rows)) }
       })
     const lineWidth = width ?? 78
-    const first = blocks[0]
+    const first = renderBlocks[0]
     let firstRows = 1
     if (first?.kind === 'para') firstRows = firstLineRows(groupBoxes(first.tokens), lineWidth)
     if (first?.kind === 'list' && first.items[0]) {
@@ -344,23 +364,40 @@ export const register: Register = (on, options) => {
     }
     const bullet = `${'\n'.repeat(Math.floor((firstRows - 1) / 2))}⏺`
 
-    const rows = []
+    const rows: RenderElement[] = []
+    let direct: RenderElement[] = []
+    let directIsFirst = false
+    let directIsTop = false
     let isFirst = e.props.isFirstOfReply
     let isTop = true
-    for (let index = 0; index < blocks.length;) {
-      const block = blocks[index]
-      if (!block) break
-      if (block.kind === 'markdown') {
-        const markdown: string[] = [block.text]
-        let nextIndex = index + 1
-        while (true) {
-          const nextBlock = blocks[nextIndex]
-          if (nextBlock?.kind !== 'markdown') break
-          markdown.push(nextBlock.text)
-          nextIndex += 1
-        }
-        const text = unicodeMath(markdown.join('\n\n'), width)
-        const drawn = await next({ ...e, props: { ...e.props, text, isFirstOfReply: isFirst } })
+    const addDirect = (element: RenderElement) => {
+      if (direct.length === 0) {
+        directIsFirst = isFirst
+        directIsTop = isTop
+      }
+      direct.push(element)
+      isFirst = false
+      isTop = false
+    }
+    const flushDirect = () => {
+      if (direct.length === 0) return
+      rows.push(
+        <Box flexDirection="row" marginTop={directIsTop ? 0 : 1} paddingRight={1}>
+          <Box width={2} flexShrink={0}>
+            <Text>{directIsFirst && directIsTop ? bullet : ' '}</Text>
+          </Box>
+          <Box flexDirection="column" gap={1} flexShrink={1}>
+            {direct}
+          </Box>
+        </Box>,
+      )
+      direct = []
+    }
+
+    for (const block of renderBlocks) {
+      if (block.kind === 'code') {
+        flushDirect()
+        const drawn = await next({ ...e, props: { ...e.props, text: block.text, isFirstOfReply: isFirst } })
         if (drawn.type === 'engine' && !isFirst) {
           rows.push(
             <Box flexDirection="row">
@@ -377,11 +414,14 @@ export const register: Register = (on, options) => {
         }
         isFirst = false
         isTop = false
-        index = nextIndex
+        continue
+      }
+      if (block.kind === 'prose') {
+        addDirect(<Markdown text={block.text} />)
         continue
       }
 
-      let content
+      let content: RenderElement
       if (block.kind === 'para') {
         content = flow(block.tokens)
       } else if (block.kind === 'display') {
@@ -402,20 +442,9 @@ export const register: Register = (on, options) => {
           </Box>
         )
       }
-      rows.push(
-        <Box flexDirection="row" marginTop={isTop ? 0 : 1} paddingRight={1}>
-          <Box width={2} flexShrink={0}>
-            <Text>{isFirst && isTop ? bullet : ' '}</Text>
-          </Box>
-          <Box flexDirection="column" flexGrow={1} flexShrink={1}>
-            {content}
-          </Box>
-        </Box>,
-      )
-      isFirst = false
-      isTop = false
-      index += 1
+      addDirect(content)
     }
+    flushDirect()
     return <Box flexDirection="column">{rows}</Box>
   })
 }

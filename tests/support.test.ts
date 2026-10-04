@@ -1,6 +1,17 @@
 import { expect, test } from 'claude-code/testing'
 
+import { splitMarkdown } from '../hooks/parse'
 import { cellWidth, inkFor, mathStyle } from '../hooks/support'
+
+test('markdown longer than the element limit splits at blank lines', async () => {
+  const text = ['a'.repeat(6), 'b'.repeat(6), 'c'.repeat(6)].join('\n\n')
+  expect(splitMarkdown(text, 14)).toEqual(['aaaaaa\n\nbbbbbb', 'cccccc'])
+  expect(splitMarkdown(text, 100)).toEqual([text])
+})
+
+test('a single block longer than the limit cannot be split', async () => {
+  expect(splitMarkdown(`${'x'.repeat(20)}\n\nshort`, 10)).toBeNull()
+})
 
 test('pictures where the terminal shows kitty graphics, Unicode text elsewhere', async () => {
   expect(mathStyle({ TERM_PROGRAM: 'ghostty' }, 'auto')).toBe('pictures')
