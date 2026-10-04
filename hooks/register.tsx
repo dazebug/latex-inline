@@ -11,6 +11,7 @@ const VERSION = 8
 const ROW_PX = 64
 // The most text one Markdown element draws.
 const MARKDOWN_LIMIT = 10_000
+
 // Added to the system prompt where the mod can draw, so Claude writes math
 // the way the parser reads it.
 const MATH_INSTRUCTION = [
@@ -271,6 +272,13 @@ export const register: Register = (on, options) => {
     const blocks = parseBlocks(e.props.text)
     if (!blocks.some(block => block.kind !== 'markdown')) return asUnicode()
 
+    // Only fenced code blocks that start a line go on to the next hook, one at
+    // a time, so a mod below such as Mermaid Inline can draw them. Prose is
+    // drawn here: Claude Code's message drawing reads text that starts with a
+    // usage-notice phrase ("You've used", "You're close to") as a notice, so a
+    // paragraph passed on by itself could turn into one. A prose block too
+    // long for one Markdown element is drawn in pieces; one that cannot be cut
+    // leaves the whole reply to the engine, in Unicode.
     const renderBlocks: RenderBlock[] = []
     for (const block of blocks) {
       if (block.kind !== 'markdown') {
@@ -364,6 +372,10 @@ export const register: Register = (on, options) => {
     }
     const bullet = `${'\n'.repeat(Math.floor((firstRows - 1) / 2))}⏺`
 
+    // Replacing the drawing drops the engine's gutter, so the rows drawn here
+    // carry the reply's bullet (first block only) and its two-column indent.
+    // The last column stays empty: a line that fills it spills its final
+    // character onto the next row.
     const rows: RenderElement[] = []
     let direct: RenderElement[] = []
     let directIsFirst = false
@@ -398,6 +410,10 @@ export const register: Register = (on, options) => {
       if (block.kind === 'code') {
         flushDirect()
         const drawn = await next({ ...e, props: { ...e.props, text: block.text, isFirstOfReply: isFirst } })
+        // Claude Code draws the bullet column only for a block that opens the
+        // reply and, in the normal view, its own blank row above, so a later
+        // block it draws gets just an empty two-column gutter. A tree from a
+        // mod below gets one blank row unless it opens this part.
         if (drawn.type === 'engine' && !isFirst) {
           rows.push(
             <Box flexDirection="row">
