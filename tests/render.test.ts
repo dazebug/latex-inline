@@ -4,21 +4,22 @@ import { expect, test } from 'claude-code/testing'
 const SESSION = { cwd: '/tmp', surface: 'terminal' as const, isInteractive: true }
 const REPLY = '저는 $Q \\ge 0$이 맞다고 봅니다.'
 
-// The engine beneath the plugin: no terminal variables, default settings, a
-// picture cache that holds every formula when `pictures` is set, and a message
-// drawing that shows the text it was handed, or an engine element when
-// `engineElement` is set; `observe` sees the props of each drawing.
+// The engine beneath the plugin: no terminal variables, default settings or
+// those given, a picture cache that holds every formula when `pictures` is
+// set, and a message drawing that shows the text it was handed, or an engine
+// element when `engineElement` is set; `observe` sees the props of each drawing.
 function engine(
   on: On,
   options: {
     observe?: (props: RenderPropsOf['AssistantMessage']) => void
     pictures?: boolean
     engineElement?: boolean
+    settings?: Record<string, unknown>
   } = {},
 ) {
   on('session.start', async ($, e) => ({ cwd: e.cwd }))
   on('env.get', async () => ({ value: undefined }))
-  on('settings.read', async () => ({ value: {} }))
+  on('settings.read', async () => ({ value: options.settings ?? {} }))
   on('command.register', async ($, e) => ({ value: { command: e.name } }))
   on('clock.every', async () => ({ value: undefined }))
   on('fs.exists', async () => ({ value: options.pictures === true }))
@@ -130,7 +131,7 @@ test('a first delegated engine block gets a gutter when it does not open the rep
   const firstRow = drawn.type === 'Box' ? drawn.children?.[0] : undefined
   expect(firstRow).toMatchObject({
     type: 'Box',
-    props: { flexDirection: 'row' },
+    props: { flexDirection: 'row', marginTop: 0 },
     children: [
       { type: 'Box', props: { width: 2, flexShrink: 0 } },
       {
@@ -247,14 +248,50 @@ test('a display formula after a code fence keeps its direct cell growing', { opt
   expect((await ui.findAll({ type: 'Box' })).some(box => box.props.flexDirection === 'column' && box.props.gap === 1 && box.props.flexGrow === 1)).toBe(true)
 })
 
-test('a returned text tree after math is wrapped in a growing column', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+test('a tree from a mod below is placed as it comes, with no margin added', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
   engine(on, { pictures: true })
   await $.session.start(SESSION)
   const text = `식 $x^2$ 입니다.\n\n${MERMAID}`
   const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } })
-  const wrapper = (await ui.findAll({ type: 'Box' })).find(box => box.props.marginTop === 1)
-  expect(wrapper?.props.flexDirection).toBe('column')
-  expect(wrapper?.children.map(child => typeof child === 'object' && child !== null ? (child as { type?: string }).type : undefined)).toEqual(['Text'])
+  const drawn = await ui.drawn()
+  expect(drawn.type === 'Box' ? drawn.children?.[1] : undefined).toMatchObject({ type: 'Text', children: [MERMAID] })
+})
+
+test('a reply drawn here starts with the blank row Claude Code puts above a reply', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true })
+  await $.session.start(SESSION)
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text: '식 $x^2$ 입니다.', isFirstOfReply: true } })
+  const drawn = await ui.drawn()
+  expect(drawn.type === 'Box' ? drawn.children?.[0] : undefined).toMatchObject({ type: 'Box', props: { marginTop: 1 } })
+})
+
+test('with message timestamps shown, a reply drawn here starts under the header with no blank row', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true, settings: { showMessageTimestamps: true } })
+  await $.session.start(SESSION)
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text: '식 $x^2$ 입니다.', isFirstOfReply: true } })
+  const drawn = await ui.drawn()
+  expect(drawn.type === 'Box' ? drawn.children?.[0] : undefined).toMatchObject({ type: 'Box', props: { marginTop: 0 } })
+})
+
+test('a part that does not open the reply brings its own blank row', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true })
+  await $.session.start(SESSION)
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text: '식 $x^2$ 입니다.', isFirstOfReply: false } })
+  const drawn = await ui.drawn()
+  expect(drawn.type === 'Box' ? drawn.children?.[0] : undefined).toMatchObject({ type: 'Box', props: { marginTop: 1 } })
+})
+
+test('with message timestamps shown, a later block Claude Code draws gets the blank row it leaves out', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true, engineElement: true, settings: { showMessageTimestamps: true } })
+  await $.session.start(SESSION)
+  const text = '식 $x^2$ 입니다.\n\n```python\nx = 1\n```'
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } })
+  const drawn = await ui.drawn()
+  expect(drawn.type === 'Box' ? drawn.children?.[1] : undefined).toMatchObject({
+    type: 'Box',
+    props: { flexDirection: 'row', marginTop: 1 },
+    children: [{ type: 'Box', props: { width: 2 } }, { type: 'Box', children: [{ type: 'engine', ref: 1 }] }],
+  })
 })
 
 test('picture mode keeps a nested fence pair inside its outer code block', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
