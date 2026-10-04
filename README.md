@@ -29,7 +29,7 @@ Start a new session, or run `/reload-plugins` in an open one. `/plugin` then lis
 
 ## Writing math
 
-The plugin adds a short section to Claude's system prompt, only in sessions where it draws pictures, that asks Claude to write math this way. Where it writes Unicode text it asks nothing, so Claude writes math as it otherwise would, and the LaTeX it does write is converted. You can write the same way in your own messages, and set `teach_claude` to `false` if you would rather instruct Claude yourself.
+The plugin adds a short section to Claude's system prompt, only in sessions where it draws pictures, that asks Claude to write math this way, except in an answer to a side question (`/btw`): Claude Code shows that answer where no plugin can redraw it, so the section asks for the math there as Unicode text. Where it writes Unicode text it asks nothing, so Claude writes math as it otherwise would, and the LaTeX it does write is converted. You can write the same way in your own messages, and set `teach_claude` to `false` if you would rather instruct Claude yourself.
 
 - Inline math goes between single dollars: `$x^2$`. Put no space right after the opening `$` or right before the closing one, so `$20 and $30` stays text.
 - Display math goes between double dollars in a paragraph of its own, with blank lines before and after.
@@ -128,6 +128,7 @@ LaTeX Inline collects no data and sends nothing off your machine: it has no serv
 
 - Copying a reply out of the terminal copies the picture placeholders or the Unicode text, not the LaTeX.
 - Claude's thinking, shown with ctrl+o, keeps its LaTeX as written: Claude Code gives mods no way to redraw it.
+- An answer to a side question (`/btw`) is not drawn either, for the same reason; where the plugin draws pictures it asks Claude to write the math there as Unicode text.
 - Inline code, bold text and links in a paragraph that holds math are drawn by the plugin, close to but not exactly like Claude Code's own drawing.
 - Where Claude Code puts a header above each message, as in the ctrl+o transcript view, a reply that holds math can have a blank row too many under the header and none above a code block in it: Claude Code leaves those rows out there, and a plugin cannot tell that view from the normal one.
 
