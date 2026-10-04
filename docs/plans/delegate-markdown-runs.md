@@ -1,10 +1,10 @@
 # delegate-markdown-runs
 
-- 절차 정본: `drive-agent-loop` 스킬과 이 계획 파일 · 현재 배정: R3 CommonMark 펜스 판정
+- 절차 정본: `drive-agent-loop` 스킬과 이 계획 파일 · 현재 배정: R4 펜스·배치 정리
 - 대상: `/Users/choongjaelee/mods/latex-inline-delegate-work`
 - 시작 커밋: `37376ae`
 - 기준 트리: `/Users/choongjaelee/mods/latex-inline-fix_delegate-markdown-runs` (`fix/delegate-markdown-runs`) · 작업 트리: `/Users/choongjaelee/mods/latex-inline-delegate-work` (`fix/delegate-markdown-runs`)
-- 현재: R3 · 마지막 승격 da5cc32 · 리뷰 중 없음 · 게이트 그린
+- 현재: R4 · 마지막 승격 f35fac4 · 리뷰 중 없음 · 게이트 그린
 - 최근 검증자 판정: no · cold · 사용자 메시지
 
 ## 배경 — 확인한 원천
@@ -30,7 +30,7 @@
 
 ## 비목표 — 건드리지 않는다
 
-- `hooks/parse.ts` 의 수식 문법·`parseBlocks` 분류와 `hooks/unicode.ts` 의 변환 규칙은 바꾸지 않는다. Markdown 의 펜스/산문 구간 분리와 `splitMarkdown` 만 복원하거나 추가한다.
+- 수식 문법과 `hooks/unicode.ts` 의 변환 규칙은 바꾸지 않는다. `hooks/parse.ts` 의 펜스 추적·블록 분류·Markdown run 분리와 `hooks/register.tsx` 의 렌더 배치는 범위에 포함한다; `hooks/unicode.ts` 의 펜스 추적은 대조만 하고 수정하지 않는다.
 - 수식 렌더러, 글꼴 측정, 그림 캐시, 색상, 프롬프트 지침 및 `/latex-inline` 명령: 이번 체인 결함과 무관하다.
 - mermaid-inline 의 구현·manifest 의존성 또는 mod 로드 순서: 순서를 바꾸지 않고 어느 쪽이 바깥이어도 다음 훅을 호출하게 한다.
 - 다른 surface 와 비 terminal 렌더 동작, 글자·꺼짐 모드의 표시 규칙은 건드리지 않는다.
@@ -73,6 +73,7 @@
 | 5 | 첫 구간이 위임 구간인데 답변의 첫 블록이 아니면(`isFirstOfReply` false) 엔진 그림을 gutter 없이 넣어 0열에 그려짐 → 첫 구간이어도 `isFirstOfReply` 가 false면 다른 엔진 구간처럼 빈 2열 gutter로 감싼다 | 체인 안쪽 합성 | — | `hooks/register.tsx`, `tests/render.test.ts` | 1 | verified | red: `claude plugin test` → 28 pass, 2 fail (gutter 기대 Box, 실제 `{ type: 'engine', ref: 1 }`); toggle: `git apply -R .git/toggle-item45.patch` 후 `claude plugin test` → 같은 2 실패 · 복원 `git apply .git/toggle-item45.patch`; green: `claude plugin test` → 30 pass, 0 fail · `node --test tests/font-metrics.test.mjs` → 4 pass, 0 fail<br>재실행(드라이버): `claude plugin test` → 30 pass, 0 fail · strict 검증 통과 · 실제 세션 mermaid 바깥, 검증자 입력(앞 `$a+b$` 문단·수식 없는 문단·mermaid·뒤 문단·`$x^2$` 문단): 트리 거부 없음, 다이어그램 앞뒤 수식과 다이어그램이 모두 그림, 다이어그램 뒤 문단이 2열 들여쓰기 | |
 | 6 | 산문은 직접 그리고 0열에서 시작하는 펜스 코드 블록만 `next` 로 넘김 | 위임 범위 | (a) 산문 구간이 엔진의 메시지 첫머리 판정을 받음 (b) latex 바깥 + mermaid 안쪽에서 다이어그램 앞 안내문이 0열·빈 줄 둘 (c) 들여쓴 펜스가 목록 산문에서 분리되어 훅에 위임됨 | `hooks/register.tsx`, `hooks/parse.ts`, `tests/render.test.ts`, `tests/support.test.ts`, `README.md` | 1·4·5 | verified | red: `claude plugin test` → 25 pass, 5 fail (표·bullet·사용량 문구·Mermaid 안내 산문·분할 함수 import); toggle: `git diff -- hooks/register.tsx hooks/parse.ts > .git/toggle-item6.patch` · `git apply -R .git/toggle-item6.patch` 뒤 `claude plugin test` → 같은 25 pass, 5 fail · 복원 `git apply .git/toggle-item6.patch`; green: `claude plugin test` → 34 pass, 0 fail (`Ran 34 tests across 4 files`) · `node --test tests/font-metrics.test.mjs` → 4 pass, 0 fail<br>재실행(드라이버): `claude plugin test` → 34 pass, 0 fail · strict 검증 통과 · 실제 세션 latex 바깥: 사용량 문구 문단이 일반 문단, 다이어그램 안내문 직접 그림, 다이어그램 그림<br>들여쓴 펜스 테스트: red `claude plugin test` → 34 pass, 1 fail (`picture mode keeps an indented code fence inside its list prose`: 바닥이 bash fence 텍스트를 두 번 받음) · green `claude plugin test` → 35 pass, 0 fail (`Ran 35 tests across 4 files`) | |
 | 7 | 중첩 펜스가 조각남 → 공유 펜스 판정을 CommonMark 규칙으로 | 펜스 판정 | — | `hooks/parse.ts`, `tests/render.test.ts`, `tests/parse.test.ts`, `README.md` | 6 | claimed | red: `claude plugin test` → 35 pass, 3 fail (backtick info string incorrectly opened a fence; nested backtick and tilde fences each split into two delegated runs); toggle: `git diff -- hooks/parse.ts > .git/toggle-item7.patch` · `git apply -R .git/toggle-item7.patch` 후 `claude plugin test` → 35 pass, 3 fail (같은 세 테스트 실패) · 복원 `git apply .git/toggle-item7.patch`; green: `claude plugin test` → 38 pass, 0 fail (`Ran 38 tests across 4 files`) · `node --test tests/font-metrics.test.mjs` → 4 pass, 0 fail | |
+| 8 | 들여쓴 펜스도 블록 분류에서 추적하고 0열 펜스만 위임하며, 인접 펜스 분리·전체 폭 배치·판별 타입을 고침 | 펜스·배치 정리 | (a) 0∼3칸 opener 제한이 `rawBlocks`·`classify` 에도 걸려 들여쓴 code 가 목록 글자로 납작해지거나 `$SRC/$` 가 가짜 수식이 됨 (b) 닫는 펜스 뒤 탭에서 닫히지 않음 (c) 인접 python·mermaid 펜스가 한 위임 구간으로 합쳐져 mermaid 가 python 을 첫 구간으로 돌려줌 (d) 직접 출력 칸에 `flexGrow` 가 없어 display 수식의 가운데 정렬이 깨지고, non-engine 결과 포장 Box 가 row 방향이라 전체 폭을 채우지 않음 (e) `'prose' | 'code'` 가 한 판별자 멤버로 묶여 `RenderBlock.items` 에서 TS2339 | `hooks/parse.ts`, `hooks/register.tsx`, `tests/render.test.ts`, `tests/parse.test.ts` | 6·7 | claimed | red: `claude plugin test` → 38 pass, 6 fail (새로 추가한 여섯 테스트 전부); toggle: `git apply -R .git/toggle-item8.patch` → 38 pass, 6 fail (펜스·배치 수정만 되돌리고 타입 수정은 유지); 복원 `git apply .git/toggle-item8.patch`; green: `claude plugin test` → 44 pass, 0 fail (`Ran 44 tests across 4 files`) · `node --test tests/font-metrics.test.mjs` → 4 pass, 0 fail · `bunx -p typescript@5 tsc --noEmit -p .claude-plugin/types/tsconfig.json` → exit 0 | |
 
 ## 결정 원장
 
@@ -104,7 +105,9 @@
 | `ui.render` 전체 경로 요약 | 안전 · 그림 모드의 수식 답변에서 산문은 변환 후 직접 `Markdown` 으로 그리므로 산문 텍스트가 `next` 로 가지 않음; 오직 fenced code run 만 위임 | `hooks/register.tsx:274`, `hooks/register.tsx:280`, `hooks/register.tsx:285`, `hooks/register.tsx:419`, `hooks/register.tsx:420` |
 | `ui.render` 에서 위임하는 code props | 안전 · envelope·props spread 로 읽기 전용 `onScreen` 보존; `isFirstOfReply` 가 false 인 engine 결과는 첫 코드 구간이어도 빈 gutter 에 넣고, 하위 mod 요소 트리는 유지 | `hooks/register.tsx:400`, `hooks/register.tsx:401`, `tests/render.test.ts:88`, `tests/render.test.ts:123` |
 | 렌더 중·실패 수식 | 안전 · 그림이 없으면 원문을 흐리게 그린 뒤 다음 블록 처리를 계속 | `hooks/register.tsx:288` |
-| 수식·산문·펜스 분류와 Unicode 변환 | 안전 · 수식 분류 및 Unicode 규칙 유지; Markdown run 추출은 0열 펜스만 분리하고 들여쓴 펜스와 내부 빈 줄은 산문 그대로 유지 | `hooks/parse.ts:182`, `hooks/parse.ts:210`, `hooks/register.tsx:280`, `hooks/register.tsx:285`; `tests/render.test.ts:165` |
+| 펜스의 블록 추적·Markdown run 분리 | 안전 · `rawBlocks`·`classify`·`splitMarkdownRuns`·`splitMarkdown` 이 공유 여는·닫는 판정을 사용; 분류는 들여쓰기와 무관하게 펜스를 추적하고, 위임은 0열 펜스 하나씩만 하며, 산문 run 만 합침 | `hooks/parse.ts:20`, `hooks/parse.ts:30`, `hooks/parse.ts:143`, `hooks/parse.ts:171`, `hooks/parse.ts:224`, `hooks/parse.ts:275`; `tests/render.test.ts:196`, `tests/render.test.ts:206`, `tests/render.test.ts:215`, `tests/render.test.ts:226` |
+| `hooks/unicode.ts` 펜스 추적 | 변경하지 않음 · opener 는 공백 들여쓰기와 3개 이상 marker 를 받아 이번 판정과 그 두 면에서 같음; backtick 정보 문자열 검증은 없고 closer 는 `trim().startsWith(fence)` 라 공유 closer 보다 넓게 닫히지만, Unicode 변환기는 이번 부류의 수정 범위 밖 | `hooks/unicode.ts:467`, `hooks/unicode.ts:590`, `hooks/unicode.ts:598`, `hooks/unicode.ts:601` |
+| 렌더된 행과 아래 hook 결과의 폭 | 안전 · 직접 출력 칸은 column·`gap=1`·`flexGrow=1`; 뒤따르는 non-engine 결과는 `column`·`marginTop=1` 로 감싸고, 엔진 결과는 빈 gutter 와 늘어나는 column 안에 둠 | `hooks/register.tsx:382`, `hooks/register.tsx:389`, `hooks/register.tsx:402`, `hooks/register.tsx:413`; `tests/render.test.ts:237`, `tests/render.test.ts:248` |
 | text·off·비 terminal fallback | 안전 · 기존 표시 규칙과 `next` 경로 유지 | `hooks/register.tsx:259`, `hooks/register.tsx:266`, `hooks/support.ts:26`; `tests/render.test.ts:22`, `tests/render.test.ts:36` |
 | `MARKDOWN_LIMIT` · `splitMarkdown` | 유지 · Unicode 변환된 산문을 10,000자 이하 `Markdown` 요소로 나눔; 분할 불가 단일 블록은 전체 답변 `asUnicode` fallback 을 선택 | `hooks/register.tsx:13`, `hooks/register.tsx:285`, `hooks/register.tsx:286`, `hooks/parse.ts:257`, `tests/support.test.ts:6`, `tests/support.test.ts:12` |
 | `tests/render.test.ts` 의 아래쪽 엔진 hook | 테스트 보조 · 위임 props 를 기록하고 `Text` 결과 또는 지정한 `{ type: 'engine', ref: 1 }` 을 돌려 트리 계약을 확인 | `tests/render.test.ts:9`, `tests/render.test.ts:22`, `tests/render.test.ts:24`, `tests/render.test.ts:123` |
@@ -130,6 +133,15 @@
 | README Hooks 설명과 10,000자 fallback 항목 | 산문 직접 그림·전체 Unicode fallback 설명으로 갱신 | `README.md:117`, `README.md:124` |
 
 ## 라운드 로그
+
+### R4
+
+#### 리뷰 5 — cold · 37376ae..f35fac4
+
+- 차단: (a) 4칸 이상 들여쓴 펜스를 블록 분류가 펜스로 못 봐 코드가 목록 글자·가짜 수식으로 그려짐(f35fac4 회귀)
+- 수정: 항목 8 (a)∼(e)
+- 실측: 검증자 하니스 탐침·Yoga 모의·tsc, 드라이버 코드 확인
+- 판정: 이 구현에 합의하는가: no
 
 ### R3
 

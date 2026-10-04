@@ -19,17 +19,17 @@ type Fence = { character: '`' | '~'; length: number; columnZero: boolean }
 
 function opensFence(line: string): Fence | null {
   const content = line.endsWith('\r') ? line.slice(0, -1) : line
-  const match = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(content)
-  const marker = match?.[1]
+  const match = /^([ \t]*)(`{3,}|~{3,})(.*)$/.exec(content)
+  const marker = match?.[2]
   if (!marker) return null
   const character = marker[0] as Fence['character']
-  if (character === '`' && (match[2] ?? '').includes('`')) return null
-  return { character, length: marker.length, columnZero: content.startsWith(marker) }
+  if (character === '`' && (match[3] ?? '').includes('`')) return null
+  return { character, length: marker.length, columnZero: match[1] === '' }
 }
 
 function closesFence(line: string, fence: Fence): boolean {
   const content = line.endsWith('\r') ? line.slice(0, -1) : line
-  const match = /^ {0,3}(`+|~+)( *)$/.exec(content)
+  const match = /^[ \t]*(`+|~+)\s*$/.exec(content)
   const marker = match?.[1]
   return marker !== undefined && marker[0] === fence.character && marker.length >= fence.length
 }
@@ -220,7 +220,7 @@ export function hasMath(text: string): boolean {
 export type MarkdownRun = { kind: 'prose' | 'code'; text: string }
 
 // Separates prose and fenced code, leaving each fence whole and merging
-// consecutive blocks of the same kind for rendering as one run.
+// consecutive prose blocks for rendering as one run.
 export function splitMarkdownRuns(text: string): MarkdownRun[] {
   const runs: MarkdownRun[] = []
   let kind: MarkdownRun['kind'] = 'prose'
@@ -230,7 +230,7 @@ export function splitMarkdownRuns(text: string): MarkdownRun[] {
     if (current.length === 0) return
     const text = current.join('\n')
     const previous = runs[runs.length - 1]
-    if (previous?.kind === kind) previous.text += `\n\n${text}`
+    if (kind === 'prose' && previous?.kind === 'prose') previous.text += `\n\n${text}`
     else runs.push({ kind, text })
     current = []
   }

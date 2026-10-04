@@ -25,7 +25,7 @@ const MATH_INSTRUCTION = [
 type Picture = { file: string; columns: number; rows: number }
 type Entry = Picture | { error: string }
 type Job = { tex: string; display: boolean }
-type RenderBlock = Exclude<Block, { kind: 'markdown' }> | { kind: 'prose' | 'code'; text: string }
+type RenderBlock = Exclude<Block, { kind: 'markdown' }> | { kind: 'prose'; text: string } | { kind: 'code'; text: string }
 type Options = Readonly<Record<string, unknown>>
 
 const entries = new Map<string, Entry>()
@@ -386,7 +386,7 @@ export const register: Register = (on, options) => {
           <Box width={2} flexShrink={0}>
             <Text>{directIsFirst && directIsTop ? bullet : ' '}</Text>
           </Box>
-          <Box flexDirection="column" gap={1} flexShrink={1}>
+          <Box flexDirection="column" gap={1} flexGrow={1} flexShrink={1}>
             {direct}
           </Box>
         </Box>,
@@ -410,7 +410,7 @@ export const register: Register = (on, options) => {
         } else if (isTop) {
           rows.push(drawn)
         } else {
-          rows.push(<Box marginTop={1}>{drawn}</Box>)
+          rows.push(<Box flexDirection="column" marginTop={1}>{drawn}</Box>)
         }
         isFirst = false
         isTop = false

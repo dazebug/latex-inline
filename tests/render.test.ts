@@ -192,3 +192,65 @@ test('picture mode delegates a nested tilde fence as one code block', { options:
   expect(delegated).toEqual([block])
   expect((await ui.findAll({ type: 'Markdown' })).map(markdown => markdown.props.text).join('\n\n')).not.toContain('A --> B')
 })
+
+test('picture mode does not flatten a deeply indented fence into a math list', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  const delegated: string[] = []
+  engine(on, { pictures: true, observe: props => delegated.push(props.text) })
+  await $.session.start(SESSION)
+  const text = '- Scale by $\\sqrt{d}$.\n- Then run:\n    ```bash\n    python optimizer.py\n    ```'
+  await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } })
+  expect(delegated).toHaveLength(1)
+  expect(delegated[0]).toContain('    ```bash\n    python optimizer.py\n    ```')
+})
+
+test('a deeply indented code fence keeps dollar variables out of reply math detection', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  const delegated: string[] = []
+  engine(on, { observe: props => delegated.push(props.text) })
+  await $.session.start(SESSION)
+  const text = 'Steps:\n\n- Build\n    - Run:\n\n      ```bash\n      cd p\n\n      cp "$SRC/$FILE" out/\n      ```'
+  await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } })
+  expect(delegated).toEqual([text])
+})
+
+test('picture mode closes a code fence before trailing tab whitespace', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  const delegated: string[] = []
+  engine(on, { pictures: true, observe: props => delegated.push(props.text) })
+  await $.session.start(SESSION)
+  const code = '```python\nx = 1\n```\t'
+  const text = `Value $x^2$.\n\n${code}\n\nThen $y$ follows.`
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } })
+  expect(delegated).toEqual([code])
+  expect((await ui.findAll({ type: 'Image' })).map(image => image.props.alt)).toContain('y')
+})
+
+test('picture mode delegates adjacent code fences as separate runs', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  const delegated: string[] = []
+  engine(on, { pictures: true, observe: props => delegated.push(props.text) })
+  await $.session.start(SESSION)
+  const python = '```python\nx = 1\n```'
+  const mermaid = '```mermaid\ngraph TD\n  A --> B\n```'
+  const text = `식 $x^2$ 입니다.\n\n${python}\n${mermaid}`
+  await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } })
+  expect(delegated).toEqual([python, mermaid])
+})
+
+test('a display formula after a code fence keeps its direct cell growing', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true })
+  await $.session.start(SESSION)
+  const prose = 'This prose line is deliberately longer than a terminal row. '.repeat(3)
+  const code = '```python\nx = 1\n```'
+  const text = `${prose}\n\n${code}\n\n$$E = mc^2$$`
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } })
+  expect((await ui.findAll({ type: 'Image' })).map(image => image.props.alt)).toEqual(['E = mc^2'])
+  expect((await ui.findAll({ type: 'Box' })).some(box => box.props.flexDirection === 'column' && box.props.gap === 1 && box.props.flexGrow === 1)).toBe(true)
+})
+
+test('a returned text tree after math is wrapped in a growing column', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true })
+  await $.session.start(SESSION)
+  const text = `식 $x^2$ 입니다.\n\n${MERMAID}`
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } })
+  const wrapper = (await ui.findAll({ type: 'Box' })).find(box => box.props.marginTop === 1)
+  expect(wrapper?.props.flexDirection).toBe('column')
+  expect(wrapper?.children.map(child => typeof child === 'object' && child !== null ? (child as { type?: string }).type : undefined)).toEqual(['Text'])
+})
