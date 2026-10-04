@@ -11,10 +11,42 @@ export type Block =
   | { kind: 'list'; items: ListItem[] }
   | { kind: 'display'; tex: string }
 
-const FENCE = /^\s*(```|~~~)/
 const LIST_ITEM = /^(\s*)([-*+]|\d+[.)])\s+/
 const WHITESPACE = /\s/
 const DIGIT = /[0-9]/
+
+type Fence = { character: '`' | '~'; length: number; indent: number; columnZero: boolean }
+
+function indentColumns(indent: string): number {
+  let columns = 0
+  for (const character of indent) columns += character === '\t' ? 4 : 1
+  return columns
+}
+
+// Do not limit an opening fence to three spaces of indent: this parser does
+// not track list items, so the limit would miss a fence nested in a list and
+// draw its code as list text or math.
+function opensFence(line: string): Fence | null {
+  const content = line.endsWith('\r') ? line.slice(0, -1) : line
+  const match = /^([ \t]*)(`{3,}|~{3,})(.*)$/.exec(content)
+  const indent = match?.[1]
+  const marker = match?.[2]
+  if (!marker) return null
+  const character = marker[0] as Fence['character']
+  if (character === '`' && (match[3] ?? '').includes('`')) return null
+  return { character, length: marker.length, indent: indentColumns(indent ?? ''), columnZero: indent === '' }
+}
+
+// Do not close a fence at a line indented more than three columns past its
+// opening: a fence example indented inside code, as in a docstring, would end
+// the outer block. Claude Code's markdown reader allows the same three.
+function closesFence(line: string, fence: Fence): boolean {
+  const content = line.endsWith('\r') ? line.slice(0, -1) : line
+  const match = /^([ \t]*)(`+|~+)\s*$/.exec(content)
+  const indent = match?.[1]
+  const marker = match?.[2]
+  return marker !== undefined && marker[0] === fence.character && marker.length >= fence.length && indentColumns(indent ?? '') <= fence.indent + 3
+}
 
 function isEscaped(s: string, i: number): boolean {
   let slashes = 0
@@ -125,16 +157,16 @@ function hasMathToken(tokens: Token[]): boolean {
 function rawBlocks(lines: string[]): string[][] {
   const blocks: string[][] = []
   let current: string[] = []
-  let fence: string | null = null
+  let fence: Fence | null = null
   for (const line of lines) {
     if (fence !== null) {
       current.push(line)
-      if (line.trim().startsWith(fence)) fence = null
+      if (closesFence(line, fence)) fence = null
       continue
     }
-    const opening = FENCE.exec(line)
+    const opening = opensFence(line)
     if (opening) {
-      fence = opening[1] ?? '```'
+      fence = opening
       current.push(line)
       continue
     }
@@ -151,7 +183,7 @@ function rawBlocks(lines: string[]): string[][] {
 
 // A block the mod draws itself, or null to leave it to the engine's Markdown.
 function classify(lines: string[]): Block | null {
-  if (lines.some(line => FENCE.test(line))) return null
+  if (lines.some(line => opensFence(line) !== null)) return null
   const joined = lines.join('\n').trim()
   const display = /^\$\$([\s\S]+)\$\$$/.exec(joined) ?? /^\\\[([\s\S]+)\\\]$/.exec(joined)
   if (display) return { kind: 'display', tex: (display[1] ?? '').trim() }
@@ -197,6 +229,59 @@ export function parseBlocks(text: string): Block[] {
 
 export function hasMath(text: string): boolean {
   return parseBlocks(text).some(block => block.kind !== 'markdown')
+}
+
+export type MarkdownRun = { kind: 'prose' | 'code'; text: string }
+
+// Splits markdown into prose and the fenced code blocks that start a line,
+// each code block whole in a run of its own. An indented fence, as in a list
+// item, stays inside its prose; consecutive prose blocks merge into one run.
+export function splitMarkdownRuns(text: string): MarkdownRun[] {
+  const runs: MarkdownRun[] = []
+  let kind: MarkdownRun['kind'] = 'prose'
+  let current: string[] = []
+  let fence: Fence | null = null
+  const flush = () => {
+    if (current.length === 0) return
+    const text = current.join('\n')
+    const previous = runs[runs.length - 1]
+    if (kind === 'prose' && previous?.kind === 'prose') previous.text += `\n\n${text}`
+    else runs.push({ kind, text })
+    current = []
+  }
+
+  for (const line of text.split('\n')) {
+    if (fence !== null) {
+      current.push(line)
+      if (closesFence(line, fence)) {
+        if (kind === 'code') {
+          flush()
+          kind = 'prose'
+        }
+        fence = null
+      }
+      continue
+    }
+
+    const opening = opensFence(line)
+    if (opening) {
+      if (opening.columnZero) {
+        flush()
+        kind = 'code'
+      }
+      current.push(line)
+      fence = opening
+      continue
+    }
+
+    if (line.trim() === '') {
+      flush()
+      continue
+    }
+    current.push(line)
+  }
+  flush()
+  return runs
 }
 
 // Packs markdown into pieces of at most `limit` characters, the most one

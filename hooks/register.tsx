@@ -1,6 +1,6 @@
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, RenderElement } from 'claude-code'
 
-import { glueTokens, parseBlocks, splitMarkdown, type Token } from './parse'
+import { glueTokens, parseBlocks, splitMarkdown, splitMarkdownRuns, type Block, type Token } from './parse'
 import { cellWidth, inkFor, mathStyle, type Ink, type MathStyle } from './support'
 import { unicodeMath } from './unicode'
 
@@ -26,6 +26,7 @@ const MATH_INSTRUCTION = [
 type Picture = { file: string; columns: number; rows: number }
 type Entry = Picture | { error: string }
 type Job = { tex: string; display: boolean }
+type RenderBlock = Exclude<Block, { kind: 'markdown' }> | { kind: 'prose'; text: string } | { kind: 'code'; text: string }
 type Options = Readonly<Record<string, unknown>>
 
 const entries = new Map<string, Entry>()
@@ -271,14 +272,28 @@ export const register: Register = (on, options) => {
     const blocks = parseBlocks(e.props.text)
     if (!blocks.some(block => block.kind !== 'markdown')) return asUnicode()
 
-    // A markdown block too long for one Markdown element is drawn in pieces;
-    // one that cannot be cut leaves the whole reply to the engine, in Unicode.
-    const markdownPieces = new Map<number, string[]>()
-    for (const [index, block] of blocks.entries()) {
-      if (block.kind !== 'markdown') continue
-      const pieces = splitMarkdown(unicodeMath(block.text, width), MARKDOWN_LIMIT)
-      if (pieces === null) return asUnicode()
-      markdownPieces.set(index, pieces)
+    // Do not pass prose on to the next hook: Claude Code's message drawing
+    // reads text that starts with a usage-notice phrase ("You've used",
+    // "You're close to") as a notice, so a paragraph passed on by itself
+    // could turn into one. Only fenced code blocks that start a line go on,
+    // one at a time, so a mod below such as Mermaid Inline can draw them. A
+    // prose block too long for one Markdown element is drawn in pieces; one
+    // that cannot be cut leaves the whole reply to the engine, in Unicode.
+    const renderBlocks: RenderBlock[] = []
+    for (const block of blocks) {
+      if (block.kind !== 'markdown') {
+        renderBlocks.push(block)
+        continue
+      }
+      for (const run of splitMarkdownRuns(block.text)) {
+        if (run.kind === 'code') {
+          renderBlocks.push({ kind: 'code', text: run.text })
+          continue
+        }
+        const pieces = splitMarkdown(unicodeMath(run.text, width), MARKDOWN_LIMIT)
+        if (pieces === null) return asUnicode()
+        for (const text of pieces) renderBlocks.push({ kind: 'prose', text })
+      }
     }
 
     const pictures = new Map<string, Entry | undefined>()
@@ -294,16 +309,16 @@ export const register: Register = (on, options) => {
     }
 
     const { Box, Image, Markdown, Text } = $.ui.resolve(e)
-    let imageCount = 0
 
     // A formula without a picture, still rendering or failed, shows its source dimmed.
     const picture = (job: Job, fallback: string) => {
       const entry = pictures.get(keyOf(job))
       if (!isPicture(entry)) return <Text dimColor>{fallback}</Text>
-      imageCount += 1
+      // Give pictures no key: keys must be unique among the Images of one
+      // tree, and an outer mod may put several of these drawings in one tree,
+      // where a repeated key gets the whole tree rejected.
       return (
         <Image
-          key={`m${imageCount}`}
           source={{ file: entry.file, format: 'png' }}
           columns={entry.columns}
           rows={entry.rows}
@@ -347,7 +362,7 @@ export const register: Register = (on, options) => {
         return { columns: boxes.reduce((sum, box) => sum + box.columns, 0), rows: Math.max(1, ...boxes.map(box => box.rows)) }
       })
     const lineWidth = width ?? 78
-    const first = blocks[0]
+    const first = renderBlocks[0]
     let firstRows = 1
     if (first?.kind === 'para') firstRows = firstLineRows(groupBoxes(first.tokens), lineWidth)
     if (first?.kind === 'list' && first.items[0]) {
@@ -360,39 +375,95 @@ export const register: Register = (on, options) => {
     }
     const bullet = `${'\n'.repeat(Math.floor((firstRows - 1) / 2))}⏺`
 
-    // Replacing the drawing drops the engine's gutter, so draw the reply's
-    // bullet (first block only) and its two-column indent here. The last
-    // column stays empty: a line that fills it spills its final character
-    // onto the next row.
-    return (
-      <Box flexDirection="row" paddingRight={1}>
-        <Box width={2} flexShrink={0}>
-          <Text>{e.props.isFirstOfReply ? bullet : ' '}</Text>
-        </Box>
-        <Box flexDirection="column" gap={1} flexShrink={1}>
-          {blocks.flatMap((block, index) => {
-            if (block.kind === 'markdown') return (markdownPieces.get(index) ?? []).map(text => <Markdown text={text} />)
-            if (block.kind === 'para') return [flow(block.tokens)]
-            if (block.kind === 'display') {
-              return [
-                <Box flexDirection="row" justifyContent="center">
-                  {picture({ tex: block.tex, display: true }, `$$${block.tex}$$`)}
-                </Box>,
-              ]
-            }
-            return [
-              <Box flexDirection="column">
-                {block.items.map(item => (
-                  <Box flexDirection="row" alignItems="center">
-                    <Text>{item.prefix}</Text>
-                    {flow(item.tokens)}
-                  </Box>
-                ))}
-              </Box>,
-            ]
-          })}
-        </Box>
-      </Box>
-    )
+    // Replacing the drawing drops the engine's gutter, so the rows drawn here
+    // carry the reply's bullet (first block only) and its two-column indent.
+    // The last column stays empty: a line that fills it spills its final
+    // character onto the next row.
+    const rows: RenderElement[] = []
+    let direct: RenderElement[] = []
+    let directIsFirst = false
+    let directIsTop = false
+    let isFirst = e.props.isFirstOfReply
+    let isTop = true
+    const addDirect = (element: RenderElement) => {
+      if (direct.length === 0) {
+        directIsFirst = isFirst
+        directIsTop = isTop
+      }
+      direct.push(element)
+      isFirst = false
+      isTop = false
+    }
+    const flushDirect = () => {
+      if (direct.length === 0) return
+      rows.push(
+        <Box flexDirection="row" marginTop={directIsTop ? 0 : 1} paddingRight={1}>
+          <Box width={2} flexShrink={0}>
+            <Text>{directIsFirst && directIsTop ? bullet : ' '}</Text>
+          </Box>
+          <Box flexDirection="column" gap={1} flexGrow={1} flexShrink={1}>
+            {direct}
+          </Box>
+        </Box>,
+      )
+      direct = []
+    }
+
+    for (const block of renderBlocks) {
+      if (block.kind === 'code') {
+        flushDirect()
+        const drawn = await next({ ...e, props: { ...e.props, text: block.text, isFirstOfReply: isFirst } })
+        // Claude Code draws the bullet column only for a block that opens the
+        // reply and, in the normal view, its own blank row above, so a later
+        // block it draws gets just an empty two-column gutter. A tree from a
+        // mod below gets one blank row unless it opens this part.
+        if (drawn.type === 'engine' && !isFirst) {
+          rows.push(
+            <Box flexDirection="row">
+              <Box width={2} flexShrink={0} />
+              <Box flexDirection="column" flexGrow={1} flexShrink={1}>
+                {drawn}
+              </Box>
+            </Box>,
+          )
+        } else if (isTop) {
+          rows.push(drawn)
+        } else {
+          rows.push(<Box flexDirection="column" marginTop={1}>{drawn}</Box>)
+        }
+        isFirst = false
+        isTop = false
+        continue
+      }
+      if (block.kind === 'prose') {
+        addDirect(<Markdown text={block.text} />)
+        continue
+      }
+
+      let content: RenderElement
+      if (block.kind === 'para') {
+        content = flow(block.tokens)
+      } else if (block.kind === 'display') {
+        content = (
+          <Box flexDirection="row" justifyContent="center">
+            {picture({ tex: block.tex, display: true }, `$$${block.tex}$$`)}
+          </Box>
+        )
+      } else {
+        content = (
+          <Box flexDirection="column">
+            {block.items.map(item => (
+              <Box flexDirection="row" alignItems="center">
+                <Text>{item.prefix}</Text>
+                {flow(item.tokens)}
+              </Box>
+            ))}
+          </Box>
+        )
+      }
+      addDirect(content)
+    }
+    flushDirect()
+    return <Box flexDirection="column">{rows}</Box>
   })
 }
