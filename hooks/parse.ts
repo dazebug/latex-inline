@@ -23,6 +23,9 @@ function indentColumns(indent: string): number {
   return columns
 }
 
+// Do not limit an opening fence to three spaces of indent: this parser does
+// not track list items, so the limit would miss a fence nested in a list and
+// draw its code as list text or math.
 function opensFence(line: string): Fence | null {
   const content = line.endsWith('\r') ? line.slice(0, -1) : line
   const match = /^([ \t]*)(`{3,}|~{3,})(.*)$/.exec(content)
@@ -34,6 +37,9 @@ function opensFence(line: string): Fence | null {
   return { character, length: marker.length, indent: indentColumns(indent ?? ''), columnZero: indent === '' }
 }
 
+// Do not close a fence at a line indented more than three columns past its
+// opening: a fence example indented inside code, as in a docstring, would end
+// the outer block. Claude Code's markdown reader allows the same three.
 function closesFence(line: string, fence: Fence): boolean {
   const content = line.endsWith('\r') ? line.slice(0, -1) : line
   const match = /^([ \t]*)(`+|~+)\s*$/.exec(content)
@@ -227,8 +233,9 @@ export function hasMath(text: string): boolean {
 
 export type MarkdownRun = { kind: 'prose' | 'code'; text: string }
 
-// Separates prose and fenced code, leaving each fence whole and merging
-// consecutive prose blocks for rendering as one run.
+// Splits markdown into prose and the fenced code blocks that start a line,
+// each code block whole in a run of its own. An indented fence, as in a list
+// item, stays inside its prose; consecutive prose blocks merge into one run.
 export function splitMarkdownRuns(text: string): MarkdownRun[] {
   const runs: MarkdownRun[] = []
   let kind: MarkdownRun['kind'] = 'prose'

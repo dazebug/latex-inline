@@ -4,8 +4,10 @@ import { expect, test } from 'claude-code/testing'
 const SESSION = { cwd: '/tmp', surface: 'terminal' as const, isInteractive: true }
 const REPLY = '저는 $Q \\ge 0$이 맞다고 봅니다.'
 
-// The engine beneath the plugin: no terminal variables, default settings, and
-// a message drawing that shows the text it was handed.
+// The engine beneath the plugin: no terminal variables, default settings, a
+// picture cache that holds every formula when `pictures` is set, and a message
+// drawing that shows the text it was handed, or an engine element when
+// `engineElement` is set; `observe` sees the props of each drawing.
 function engine(
   on: On,
   options: {

@@ -272,13 +272,13 @@ export const register: Register = (on, options) => {
     const blocks = parseBlocks(e.props.text)
     if (!blocks.some(block => block.kind !== 'markdown')) return asUnicode()
 
-    // Only fenced code blocks that start a line go on to the next hook, one at
-    // a time, so a mod below such as Mermaid Inline can draw them. Prose is
-    // drawn here: Claude Code's message drawing reads text that starts with a
-    // usage-notice phrase ("You've used", "You're close to") as a notice, so a
-    // paragraph passed on by itself could turn into one. A prose block too
-    // long for one Markdown element is drawn in pieces; one that cannot be cut
-    // leaves the whole reply to the engine, in Unicode.
+    // Do not pass prose on to the next hook: Claude Code's message drawing
+    // reads text that starts with a usage-notice phrase ("You've used",
+    // "You're close to") as a notice, so a paragraph passed on by itself
+    // could turn into one. Only fenced code blocks that start a line go on,
+    // one at a time, so a mod below such as Mermaid Inline can draw them. A
+    // prose block too long for one Markdown element is drawn in pieces; one
+    // that cannot be cut leaves the whole reply to the engine, in Unicode.
     const renderBlocks: RenderBlock[] = []
     for (const block of blocks) {
       if (block.kind !== 'markdown') {
@@ -314,6 +314,9 @@ export const register: Register = (on, options) => {
     const picture = (job: Job, fallback: string) => {
       const entry = pictures.get(keyOf(job))
       if (!isPicture(entry)) return <Text dimColor>{fallback}</Text>
+      // Give pictures no key: keys must be unique among the Images of one
+      // tree, and an outer mod may put several of these drawings in one tree,
+      // where a repeated key gets the whole tree rejected.
       return (
         <Image
           source={{ file: entry.file, format: 'png' }}
