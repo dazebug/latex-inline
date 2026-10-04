@@ -6,15 +6,24 @@ const REPLY = '저는 $Q \\ge 0$이 맞다고 봅니다.'
 
 // The engine beneath the plugin: no terminal variables, default settings, and
 // a message drawing that shows the text it was handed.
-function engine(on: On, observe?: (props: RenderPropsOf['AssistantMessage']) => void) {
+function engine(
+  on: On,
+  options: {
+    observe?: (props: RenderPropsOf['AssistantMessage']) => void
+    pictures?: boolean
+    engineElement?: boolean
+  } = {},
+) {
   on('session.start', async ($, e) => ({ cwd: e.cwd }))
   on('env.get', async () => ({ value: undefined }))
   on('settings.read', async () => ({ value: {} }))
   on('command.register', async ($, e) => ({ value: { command: e.name } }))
   on('clock.every', async () => ({ value: undefined }))
-  on('fs.exists', async () => ({ value: false }))
+  on('fs.exists', async () => ({ value: options.pictures === true }))
+  on('fs.read', async () => ({ value: JSON.stringify({ key: 'fixture', file: '/tmp/x.png', columns: 4, rows: 1 }) }))
   on('ui.render', { component: 'AssistantMessage' }, async ($, e) => {
-    observe?.(e.props)
+    options.observe?.(e.props)
+    if (options.engineElement) return { type: 'engine', ref: 1 } as never
     return { type: 'Text', props: {}, children: [e.props.text] }
   })
 }
@@ -52,7 +61,7 @@ test('in picture mode, math in a table is written as Unicode', { options: { mode
 
 test('in picture mode, a table beside drawn math is written as Unicode', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
   const delegated: string[] = []
-  engine(on, props => delegated.push(props.text))
+  engine(on, { observe: props => delegated.push(props.text) })
   await $.session.start(SESSION)
   const text = `식 $x^2$ 입니다.\n\n${TABLE}`
   await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } })
@@ -61,9 +70,25 @@ test('in picture mode, a table beside drawn math is written as Unicode', { optio
 
 const MERMAID = '```mermaid\ngraph TD\n  A --> B\n```'
 
+const OUTER_MERMAID = {
+  name: 'outer-mermaid-split',
+  tier: 'prepend' as const,
+  register(on: On) {
+    on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
+      const separator = '\n\n```mermaid\ngraph TD\n  A --> B\n```\n\n'
+      const split = e.props.text.indexOf(separator)
+      if (e.surface !== 'terminal' || split < 0) return next(e)
+      const { Box, Text } = $.ui.resolve(e)
+      const before = await next({ ...e, props: { ...e.props, text: e.props.text.slice(0, split) } })
+      const after = await next({ ...e, props: { ...e.props, text: e.props.text.slice(split + separator.length), isFirstOfReply: false } })
+      return Box({ flexDirection: 'column', children: [before, Text({ children: ['diagram'] }), after] })
+    })
+  },
+}
+
 test('in picture mode, math beside a Mermaid fence delegates the fence with its reply props', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
   const delegated: RenderPropsOf['AssistantMessage'][] = []
-  engine(on, props => delegated.push(props))
+  engine(on, { observe: props => delegated.push(props) })
   await $.session.start(SESSION)
   const onScreen = { first: 2, last: 7, of: 9 }
   const text = `식 $x^2$ 입니다.\n\n${MERMAID}`
@@ -76,9 +101,41 @@ test('in picture mode, math beside a Mermaid fence delegates the fence with its 
 
 test('in picture mode, a markdown block before math keeps the reply bullet', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
   const delegated: RenderPropsOf['AssistantMessage'][] = []
-  engine(on, props => delegated.push(props))
+  engine(on, { observe: props => delegated.push(props) })
   await $.session.start(SESSION)
   await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text: '수식 없는 문단입니다.\n\n식 $x^2$ 입니다.', isFirstOfReply: true } })
   expect(delegated[0]?.text).toBe('수식 없는 문단입니다.')
   expect(delegated[0]?.isFirstOfReply).toBe(true)
+})
+
+test('an outer Mermaid mod can keep math pictures on both sides of a diagram', { plugins: [OUTER_MERMAID], options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true })
+  await $.session.start(SESSION)
+  const text = `식 $a+b$ 로 시작합니다.\n\n${MERMAID}\n\n그래서 $x^2$ 가 됩니다.`
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } })
+  expect((await ui.drawn()).type).toBe('Box')
+  const images = await ui.findAll({ type: 'Image' })
+  expect(images).toHaveLength(2)
+  expect(images.map(image => image.key)).toEqual([undefined, undefined])
+  expect(images.map(image => image.props.alt)).toEqual(['a+b', 'x^2'])
+})
+
+test('a first delegated engine block gets a gutter when it does not open the reply', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { engineElement: true })
+  await $.session.start(SESSION)
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text: '수식 없는 문단입니다.\n\n식 $x^2$ 입니다.', isFirstOfReply: false } })
+  const drawn = await ui.drawn()
+  const firstRow = drawn.type === 'Box' ? drawn.children?.[0] : undefined
+  expect(firstRow).toMatchObject({
+    type: 'Box',
+    props: { flexDirection: 'row' },
+    children: [
+      { type: 'Box', props: { width: 2, flexShrink: 0 } },
+      {
+        type: 'Box',
+        props: { flexDirection: 'column', flexGrow: 1, flexShrink: 1 },
+        children: [{ type: 'engine', ref: 1 }],
+      },
+    ],
+  })
 })

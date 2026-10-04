@@ -281,16 +281,13 @@ export const register: Register = (on, options) => {
     }
 
     const { Box, Image, Text } = $.ui.resolve(e)
-    let imageCount = 0
 
     // A formula without a picture, still rendering or failed, shows its source dimmed.
     const picture = (job: Job, fallback: string) => {
       const entry = pictures.get(keyOf(job))
       if (!isPicture(entry)) return <Text dimColor>{fallback}</Text>
-      imageCount += 1
       return (
         <Image
-          key={`m${imageCount}`}
           source={{ file: entry.file, format: 'png' }}
           columns={entry.columns}
           rows={entry.rows}
@@ -364,9 +361,7 @@ export const register: Register = (on, options) => {
         }
         const text = unicodeMath(markdown.join('\n\n'), width)
         const drawn = await next({ ...e, props: { ...e.props, text, isFirstOfReply: isFirst } })
-        if (isTop) {
-          rows.push(drawn)
-        } else if (drawn.type === 'engine' && !isFirst) {
+        if (drawn.type === 'engine' && !isFirst) {
           rows.push(
             <Box flexDirection="row">
               <Box width={2} flexShrink={0} />
@@ -375,6 +370,8 @@ export const register: Register = (on, options) => {
               </Box>
             </Box>,
           )
+        } else if (isTop) {
+          rows.push(drawn)
         } else {
           rows.push(<Box marginTop={1}>{drawn}</Box>)
         }
