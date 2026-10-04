@@ -11,13 +11,27 @@ export type Block =
   | { kind: 'list'; items: ListItem[] }
   | { kind: 'display'; tex: string }
 
-const FENCE = /^\s*(```|~~~)/
 const LIST_ITEM = /^(\s*)([-*+]|\d+[.)])\s+/
 const WHITESPACE = /\s/
 const DIGIT = /[0-9]/
 
-function closesFence(line: string, fence: string): boolean {
-  return line.trim().startsWith(fence)
+type Fence = { character: '`' | '~'; length: number; columnZero: boolean }
+
+function opensFence(line: string): Fence | null {
+  const content = line.endsWith('\r') ? line.slice(0, -1) : line
+  const match = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(content)
+  const marker = match?.[1]
+  if (!marker) return null
+  const character = marker[0] as Fence['character']
+  if (character === '`' && (match[2] ?? '').includes('`')) return null
+  return { character, length: marker.length, columnZero: content.startsWith(marker) }
+}
+
+function closesFence(line: string, fence: Fence): boolean {
+  const content = line.endsWith('\r') ? line.slice(0, -1) : line
+  const match = /^ {0,3}(`+|~+)( *)$/.exec(content)
+  const marker = match?.[1]
+  return marker !== undefined && marker[0] === fence.character && marker.length >= fence.length
 }
 
 function isEscaped(s: string, i: number): boolean {
@@ -129,16 +143,16 @@ function hasMathToken(tokens: Token[]): boolean {
 function rawBlocks(lines: string[]): string[][] {
   const blocks: string[][] = []
   let current: string[] = []
-  let fence: string | null = null
+  let fence: Fence | null = null
   for (const line of lines) {
     if (fence !== null) {
       current.push(line)
       if (closesFence(line, fence)) fence = null
       continue
     }
-    const opening = FENCE.exec(line)
+    const opening = opensFence(line)
     if (opening) {
-      fence = opening[1] ?? '```'
+      fence = opening
       current.push(line)
       continue
     }
@@ -155,7 +169,7 @@ function rawBlocks(lines: string[]): string[][] {
 
 // A block the mod draws itself, or null to leave it to the engine's Markdown.
 function classify(lines: string[]): Block | null {
-  if (lines.some(line => FENCE.test(line))) return null
+  if (lines.some(line => opensFence(line) !== null)) return null
   const joined = lines.join('\n').trim()
   const display = /^\$\$([\s\S]+)\$\$$/.exec(joined) ?? /^\\\[([\s\S]+)\\\]$/.exec(joined)
   if (display) return { kind: 'display', tex: (display[1] ?? '').trim() }
@@ -211,7 +225,7 @@ export function splitMarkdownRuns(text: string): MarkdownRun[] {
   const runs: MarkdownRun[] = []
   let kind: MarkdownRun['kind'] = 'prose'
   let current: string[] = []
-  let fence: string | null = null
+  let fence: Fence | null = null
   const flush = () => {
     if (current.length === 0) return
     const text = current.join('\n')
@@ -234,15 +248,14 @@ export function splitMarkdownRuns(text: string): MarkdownRun[] {
       continue
     }
 
-    const opening = FENCE.exec(line)
+    const opening = opensFence(line)
     if (opening) {
-      const isColumnZero = line.startsWith('```') || line.startsWith('~~~')
-      if (isColumnZero) {
+      if (opening.columnZero) {
         flush()
         kind = 'code'
       }
       current.push(line)
-      fence = opening[1] ?? '```'
+      fence = opening
       continue
     }
 

@@ -1,6 +1,11 @@
 import { expect, test } from 'claude-code/testing'
 
-import { glueTokens, hasMath, parseBlocks, tokenize } from '../hooks/parse'
+import { glueTokens, hasMath, parseBlocks, splitMarkdownRuns, tokenize } from '../hooks/parse'
+
+test('a backtick in a fence info string does not open a fence', async () => {
+  const text = '```a```\n\nplain'
+  expect(splitMarkdownRuns(text)).toEqual([{ kind: 'prose', text }])
+})
 
 test('tokens with no space between them wrap together', async () => {
   expect(glueTokens(tokenize('together: $e^{i\\pi}+1=0$.'))).toEqual([

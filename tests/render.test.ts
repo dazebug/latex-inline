@@ -170,3 +170,25 @@ test('picture mode keeps an indented code fence inside its list prose', { option
   expect(delegated).toEqual([])
   expect((await ui.findAll({ type: 'Markdown' })).map(markdown => markdown.props.text).join('\n\n')).toContain('   ```bash\n   echo hi\n   ```')
 })
+
+test('picture mode delegates a nested backtick fence as one code block', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  const delegated: string[] = []
+  engine(on, { pictures: true, observe: props => delegated.push(props.text) })
+  await $.session.start(SESSION)
+  const block = '````markdown\n```python\nx = 1\n```\n````'
+  const text = `식 $x^2$ 입니다.\n\n${block}`
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } })
+  expect(delegated).toEqual([block])
+  expect((await ui.findAll({ type: 'Markdown' })).map(markdown => markdown.props.text).join('\n\n')).not.toContain('x = 1')
+})
+
+test('picture mode delegates a nested tilde fence as one code block', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  const delegated: string[] = []
+  engine(on, { pictures: true, observe: props => delegated.push(props.text) })
+  await $.session.start(SESSION)
+  const block = '~~~~markdown\n~~~mermaid\ngraph TD\n  A --> B\n~~~\n~~~~'
+  const text = `식 $x^2$ 입니다.\n\n${block}`
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } })
+  expect(delegated).toEqual([block])
+  expect((await ui.findAll({ type: 'Markdown' })).map(markdown => markdown.props.text).join('\n\n')).not.toContain('A --> B')
+})

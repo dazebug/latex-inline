@@ -114,14 +114,14 @@ LaTeX Inline collects no data and sends nothing off your machine: it has no serv
 - **Network**: none at run time. Claude Code downloads the npm packages pinned in `package-lock.json` (`mathjax`, `@mathjax/mathjax-fira-font`, `@resvg/resvg-js`) when it installs the plugin.
 - **Sends**: nothing leaves your machine. The formulas go to the local `node` renderer on its standard input, and the pictures come back as files in the cache folder.
 - **Credentials**: none are read.
-- **Hooks**: `session.start` works out how this terminal shows math, measures the font for pictures and registers `/latex-inline`; `command.run` answers `/latex-inline`; `prompt.compose` adds the math-writing section described above; `ui.render`, on assistant messages only, draws math-bearing paragraphs, list items and display formulas along with the reply's prose. In picture mode it passes only fenced code blocks that start at the left edge of a line to the next hook, so mods such as Mermaid Inline can draw them; indented fences stay with the prose. When Unicode fallback applies, it passes the whole reply on with math written as Unicode text. It leaves the stored message as it was.
+- **Hooks**: `session.start` works out how this terminal shows math, measures the font for pictures and registers `/latex-inline`; `command.run` answers `/latex-inline`; `prompt.compose` adds the math-writing section described above; `ui.render`, on assistant messages only, draws the math and the prose itself and passes only the fenced code blocks that start a line on to the next hook, so mods such as Mermaid Inline can draw them; indented fences stay with the prose. A reply with no math to draw, and every reply where it writes Unicode text, goes on whole, with its math written as Unicode text. It leaves the stored message as it was.
 - **Changes to Claude**: the math-writing section in the system prompt described above, only where the plugin draws pictures, and the `/latex-inline` command. The Unicode text is computed in the plugin itself and runs nothing.
 
 ## When a formula can't be drawn
 
 - A formula MathJax can't parse, or one that uses an unknown command, shows its LaTeX source, dimmed, in its place. The rest of the reply is still drawn.
 - If the renderer can't run at all (no `node`, missing packages), every formula shows its source dimmed, and the plugin tries again in the next session.
-- If a reply with math holds a single block of text, outside code blocks, longer than 10,000 characters, the whole reply is written as Unicode text.
+- If a reply with math holds a single block of text, other than a fenced code block that starts a line, longer than 10,000 characters, the whole reply is written as Unicode text.
 - While a new formula renders, its source shows for a moment and is then replaced.
 
 ## Limitations
