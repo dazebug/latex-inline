@@ -8,7 +8,7 @@ LaTeX Inline typesets the math in Claude's replies right inside your terminal. W
 
 Formulas are laid out by [MathJax](https://www.mathjax.org/) with the Fira Math font and drawn through the kitty graphics protocol, so pictures need a terminal that shows them that way: [Ghostty](https://ghostty.org/), cmux (built on Ghostty) or [kitty](https://sw.kovidgoyal.net/kitty/). Everywhere else, including iTerm2, WezTerm, Terminal.app and anything inside tmux, you get the Unicode text.
 
-It works beside [Mermaid Inline](https://github.com/dazebug/mermaid-inline): in a reply that holds both math and diagrams, each plugin draws its own part, whichever runs first.
+It works beside [Mermaid Inline](https://github.com/dazebug/mermaid-inline): in a reply that holds both math and diagrams, each plugin draws its own part, whichever runs first. Use Mermaid Inline 0.1.1 or later with it, so the two leave the same blank rows between their parts.
 
 ## Requirements
 
@@ -129,6 +129,7 @@ LaTeX Inline collects no data and sends nothing off your machine: it has no serv
 - Copying a reply out of the terminal copies the picture placeholders or the Unicode text, not the LaTeX.
 - Claude's thinking, shown with ctrl+o, keeps its LaTeX as written: Claude Code gives mods no way to redraw it.
 - Inline code, bold text and links in a paragraph that holds math are drawn by the plugin, close to but not exactly like Claude Code's own drawing.
+- Where Claude Code puts a header above each message, as in the ctrl+o transcript view, a reply that holds math can have a blank row too many under the header and none above a code block in it: Claude Code leaves those rows out there, and a plugin cannot tell that view from the normal one.
 
 ## Troubleshooting
 

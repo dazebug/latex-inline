@@ -379,27 +379,25 @@ export const register: Register = (on, options) => {
     // carry the reply's bullet (first block only) and its two-column indent.
     // The last column stays empty: a line that fills it spills its final
     // character onto the next row.
+    // Each part brings the blank row above it, as Claude Code's drawing of a
+    // block does in the normal view, so whoever places it adds none. Where
+    // Claude Code puts a message header above a reply instead, as in the ctrl+o
+    // view, it leaves that row out, and a mod cannot tell those views apart.
     const rows: RenderElement[] = []
     let direct: RenderElement[] = []
     let directIsFirst = false
-    let directIsTop = false
     let isFirst = e.props.isFirstOfReply
-    let isTop = true
     const addDirect = (element: RenderElement) => {
-      if (direct.length === 0) {
-        directIsFirst = isFirst
-        directIsTop = isTop
-      }
+      if (direct.length === 0) directIsFirst = isFirst
       direct.push(element)
       isFirst = false
-      isTop = false
     }
     const flushDirect = () => {
       if (direct.length === 0) return
       rows.push(
-        <Box flexDirection="row" marginTop={directIsTop ? 0 : 1} paddingRight={1}>
+        <Box flexDirection="row" marginTop={1} paddingRight={1}>
           <Box width={2} flexShrink={0}>
-            <Text>{directIsFirst && directIsTop ? bullet : ' '}</Text>
+            <Text>{directIsFirst ? bullet : ' '}</Text>
           </Box>
           <Box flexDirection="column" gap={1} flexGrow={1} flexShrink={1}>
             {direct}
@@ -414,9 +412,8 @@ export const register: Register = (on, options) => {
         flushDirect()
         const drawn = await next({ ...e, props: { ...e.props, text: block.text, isFirstOfReply: isFirst } })
         // Claude Code draws the bullet column only for a block that opens the
-        // reply and, in the normal view, its own blank row above, so a later
-        // block it draws gets just an empty two-column gutter. A tree from a
-        // mod below gets one blank row unless it opens this part.
+        // reply, so a later block it draws gets an empty two-column gutter
+        // here. A tree from a mod below brings its own gutter and blank row.
         if (drawn.type === 'engine' && !isFirst) {
           rows.push(
             <Box flexDirection="row">
@@ -426,13 +423,10 @@ export const register: Register = (on, options) => {
               </Box>
             </Box>,
           )
-        } else if (isTop) {
-          rows.push(drawn)
         } else {
-          rows.push(<Box flexDirection="column" marginTop={1}>{drawn}</Box>)
+          rows.push(drawn)
         }
         isFirst = false
-        isTop = false
         continue
       }
       if (block.kind === 'prose') {

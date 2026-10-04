@@ -128,6 +128,7 @@ test('a first delegated engine block gets a gutter when it does not open the rep
   const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text: '```python\nx = 1\n```\n\n식 $x^2$ 입니다.', isFirstOfReply: false } })
   const drawn = await ui.drawn()
   const firstRow = drawn.type === 'Box' ? drawn.children?.[0] : undefined
+  expect((firstRow as { props?: { marginTop?: number } } | undefined)?.props?.marginTop ?? 0).toBe(0)
   expect(firstRow).toMatchObject({
     type: 'Box',
     props: { flexDirection: 'row' },
@@ -247,14 +248,29 @@ test('a display formula after a code fence keeps its direct cell growing', { opt
   expect((await ui.findAll({ type: 'Box' })).some(box => box.props.flexDirection === 'column' && box.props.gap === 1 && box.props.flexGrow === 1)).toBe(true)
 })
 
-test('a returned text tree after math is wrapped in a growing column', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+test('a tree from a mod below is placed as it comes, with no margin added', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
   engine(on, { pictures: true })
   await $.session.start(SESSION)
   const text = `식 $x^2$ 입니다.\n\n${MERMAID}`
   const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } })
-  const wrapper = (await ui.findAll({ type: 'Box' })).find(box => box.props.marginTop === 1)
-  expect(wrapper?.props.flexDirection).toBe('column')
-  expect(wrapper?.children.map(child => typeof child === 'object' && child !== null ? (child as { type?: string }).type : undefined)).toEqual(['Text'])
+  const drawn = await ui.drawn()
+  expect(drawn.type === 'Box' ? drawn.children?.[1] : undefined).toMatchObject({ type: 'Text', children: [MERMAID] })
+})
+
+test('a reply drawn here starts with the blank row Claude Code puts above a reply', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true })
+  await $.session.start(SESSION)
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text: '식 $x^2$ 입니다.', isFirstOfReply: true } })
+  const drawn = await ui.drawn()
+  expect(drawn.type === 'Box' ? drawn.children?.[0] : undefined).toMatchObject({ type: 'Box', props: { marginTop: 1 } })
+})
+
+test('a part that does not open the reply brings its own blank row', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true })
+  await $.session.start(SESSION)
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text: '식 $x^2$ 입니다.', isFirstOfReply: false } })
+  const drawn = await ui.drawn()
+  expect(drawn.type === 'Box' ? drawn.children?.[0] : undefined).toMatchObject({ type: 'Box', props: { marginTop: 1 } })
 })
 
 test('picture mode keeps a nested fence pair inside its outer code block', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
