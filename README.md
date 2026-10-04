@@ -129,7 +129,7 @@ LaTeX Inline collects no data and sends nothing off your machine: it has no serv
 - Copying a reply out of the terminal copies the picture placeholders or the Unicode text, not the LaTeX.
 - Claude's thinking, shown with ctrl+o, keeps its LaTeX as written: Claude Code gives mods no way to redraw it.
 - Inline code, bold text and links in a paragraph that holds math are drawn by the plugin, close to but not exactly like Claude Code's own drawing.
-- In the ctrl+o transcript view, a reply that holds math can have a blank row too many under the message header, and none above a code block in it: Claude Code leaves those rows out in that view, and a plugin cannot tell it from the normal one. With `showMessageTimestamps` on when the session starts, the rows match.
+- Where Claude Code puts a header above each message, as in the ctrl+o transcript view, a reply that holds math can have a blank row too many under the header and none above a code block in it: Claude Code leaves those rows out there, and a plugin cannot tell that view from the normal one.
 
 ## Troubleshooting
 

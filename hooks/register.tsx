@@ -51,8 +51,7 @@ let style = {
   displayScale: 2.18,
   fontFamily: 'fira',
 }
-// `headers`: Claude Code puts a header above each message (showMessageTimestamps).
-let config = { node: 'node', cacheDir: '', style: 'off' as MathStyle, teach: true, ink: inkFor(undefined, 'auto') as Ink, headers: false }
+let config = { node: 'node', cacheDir: '', style: 'off' as MathStyle, teach: true, ink: inkFor(undefined, 'auto') as Ink }
 // What bin/font-metrics.mjs made of the terminal's font, for /latex-inline.
 let fontReport = 'not looked up'
 
@@ -210,7 +209,7 @@ export const register: Register = (on, options) => {
       KITTY_WINDOW_ID: await $.env.get('KITTY_WINDOW_ID'),
       TMUX: await $.env.get('TMUX'),
     }
-    const settings = (await $.settings.read()) as { theme?: unknown; showMessageTimestamps?: unknown }
+    const settings = (await $.settings.read()) as { theme?: unknown }
     const cacheHome = (await $.env.get('XDG_CACHE_HOME')) ?? `${(await $.env.get('HOME')) ?? ''}/.cache`
     config = {
       node: stringOption(options, 'node_path', 'node'),
@@ -218,7 +217,6 @@ export const register: Register = (on, options) => {
       style: mathStyle(env, stringOption(options, 'mode', 'auto')),
       teach: options.teach_claude !== false,
       ink: inkFor(typeof settings.theme === 'string' ? settings.theme : undefined, stringOption(options, 'color', 'auto')),
-      headers: settings.showMessageTimestamps === true,
     }
     fontReport = 'set by hand (font_metrics is manual)'
     if (config.style === 'pictures' && stringOption(options, 'font_metrics', 'auto') !== 'manual') {
@@ -382,9 +380,9 @@ export const register: Register = (on, options) => {
     // The last column stays empty: a line that fills it spills its final
     // character onto the next row.
     // Each part brings the blank row above it, as Claude Code's drawing of a
-    // block does, so whoever places it adds none: one row, except at the top
-    // of a reply under a message header (showMessageTimestamps). The ctrl+o
-    // view has headers too, but a mod cannot tell it apart from the normal one.
+    // block does in the normal view, so whoever places it adds none. Where
+    // Claude Code puts a message header above a reply instead, as in the ctrl+o
+    // view, it leaves that row out, and a mod cannot tell those views apart.
     const rows: RenderElement[] = []
     let direct: RenderElement[] = []
     let directIsFirst = false
@@ -397,7 +395,7 @@ export const register: Register = (on, options) => {
     const flushDirect = () => {
       if (direct.length === 0) return
       rows.push(
-        <Box flexDirection="row" marginTop={directIsFirst && config.headers ? 0 : 1} paddingRight={1}>
+        <Box flexDirection="row" marginTop={1} paddingRight={1}>
           <Box width={2} flexShrink={0}>
             <Text>{directIsFirst ? bullet : ' '}</Text>
           </Box>
@@ -414,12 +412,11 @@ export const register: Register = (on, options) => {
         flushDirect()
         const drawn = await next({ ...e, props: { ...e.props, text: block.text, isFirstOfReply: isFirst } })
         // Claude Code draws the bullet column only for a block that opens the
-        // reply, and under message headers no blank row above any block, so a
-        // later block it draws gets an empty two-column gutter here and, under
-        // headers, its blank row. A tree from a mod below brings both itself.
+        // reply, so a later block it draws gets an empty two-column gutter
+        // here. A tree from a mod below brings its own gutter and blank row.
         if (drawn.type === 'engine' && !isFirst) {
           rows.push(
-            <Box flexDirection="row" marginTop={config.headers ? 1 : 0}>
+            <Box flexDirection="row">
               <Box width={2} flexShrink={0} />
               <Box flexDirection="column" flexGrow={1} flexShrink={1}>
                 {drawn}
