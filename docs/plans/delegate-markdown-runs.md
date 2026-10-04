@@ -4,7 +4,7 @@
 - 대상: `/Users/choongjaelee/mods/latex-inline-delegate-work`
 - 시작 커밋: `37376ae`
 - 기준 트리: `/Users/choongjaelee/mods/latex-inline-fix_delegate-markdown-runs` (`fix/delegate-markdown-runs`) · 작업 트리: `/Users/choongjaelee/mods/latex-inline-delegate-work` (`fix/delegate-markdown-runs`)
-- 현재: R0 · 마지막 승격 없음 · 리뷰 중 없음 · 게이트 미실행
+- 현재: R1 · 마지막 승격 7685673 · 리뷰 중 없음 · 게이트 그린
 - 최근 검증자 판정: 미요청 · 원문 없음
 
 ## 배경 — 확인한 원천
@@ -15,12 +15,12 @@
 
 ## 목표
 
-그림 모드의 terminal `AssistantMessage` 에서 수식이 든 문단·목록·단독 display 수식은 latex-inline 이 그린다. 연속한 나머지 Markdown 블록은 하나의 구간으로 합쳐 `unicodeMath` 변환 뒤 자르지 않고 한 번에 `next` 로 넘기며, 반환된 엔진·하위 mod 요소를 최종 트리에 포함한다. Latex Inline 이 바깥인 경로는 하니스로 고정하고, Mermaid Inline 이 바깥인 경로는 하니스로 순서를 고정할 수 있을 때만 하니스로, 아니면 드라이버의 실제 세션 대조로 확인한다. 글자 모드·꺼짐 모드·다른 surface·렌더 중이거나 실패한 수식·블록 간 bullet, gutter, 빈 줄은 기존 계약을 유지한다.
+그림 모드의 terminal `AssistantMessage` 에서 수식이 든 문단·목록·단독 display 수식은 latex-inline 이 그린다. 연속한 나머지 Markdown 블록은 하나의 구간으로 합쳐 `unicodeMath` 변환 뒤 자르지 않고 한 번에 `next` 로 넘기며, 반환된 엔진·하위 mod 요소를 최종 트리에 포함한다. Latex Inline 이 바깥인 경로는 하니스로 고정하고, Mermaid Inline 이 바깥인 경로는 드라이버의 실제 세션 대조로 확인한다. 글자 모드·꺼짐 모드·다른 surface·렌더 중이거나 실패한 수식·블록 간 bullet, gutter, 빈 줄은 기존 계약을 유지한다.
 
 ## 완료의 정의
 
 - 반드시 재현해 막아야 끝인 실패: terminal 그림 모드 답변에 문장 속 수식과 fenced mermaid 블록이 함께 있을 때, latex-inline 이 `next` 를 부르지 않아 수식만 그림이 되고 mermaid 블록은 코드로 남으며 mermaid-inline 이 호출되지 않는다.
-- acceptance oracle: `tests/render.test.ts` 의 `claude-code/testing` 하니스에서 latex-inline 이 바깥인 방향을 고정하고, 바닥 `on('ui.render')` 관찰자가 위임된 Markdown 구간 텍스트·`isFirstOfReply`·`onScreen` 을 받으며 downstream 요소가 최종 트리에 남는지 확인한다. Mermaid Inline 이 바깥인 방향은 하니스가 순서를 고정할 수 있음을 먼저 확인하고, 가능하면 하니스로 고정하며 그렇지 않으면 드라이버의 실제 세션 대조로 확인한다. 수정 전 새 회귀 테스트가 실패하고 수정 뒤 통과해야 한다. 구현 단계 게이트는 `claude plugin test`, `node --test tests/font-metrics.test.mjs`, `claude plugin validate --strict .claude-plugin/plugin.json` 이다.
+- acceptance oracle: `tests/render.test.ts` 의 `claude-code/testing` 하니스에서 latex-inline 이 바깥인 방향을 고정하고, 바닥 `on('ui.render')` 관찰자가 위임된 Markdown 구간 텍스트·`isFirstOfReply`·`onScreen` 을 받으며 downstream 요소가 최종 트리에 남는지 확인한다. Mermaid Inline 이 바깥인 방향은 드라이버의 실제 세션 대조로 확인한다. 수정 전 새 회귀 테스트가 실패하고 수정 뒤 통과해야 한다. 구현 단계 게이트는 `claude plugin test`, `node --test tests/font-metrics.test.mjs`, `claude plugin validate --strict .claude-plugin/plugin.json` 이다.
 - 코퍼스 범위: N/A — 사용자 데이터 코퍼스가 아닌 고정 렌더 fixture 를 쓴다.
 - 원자성·부분 실패·롤백 경계: N/A — 변경은 렌더 체인 조합과 manifest 버전뿐이고 새 외부 쓰기나 되돌릴 수 없는 동작을 추가하지 않는다. 기존 그림 캐시와 렌더 대기열 동작은 변경 대상이 아니다.
 
@@ -66,7 +66,7 @@
 
 | # | 항목 | 부류 | 확정 결함 | 파일 집합 | 의존 | 상태 | 근거 | 승격 |
 |:--|:--|:--|:--|:--|:--|:--|:--|:--|
-| 1 | 그림 모드에서 전체 AssistantMessage 를 직접 그려 `next` 없이 끝내는 경로를 수식 블록 그림과 나머지 Markdown 위임으로 교체하고, 쓰이지 않는 분할 경로를 제거 | `ui.render` 체인 합성 | (a) 수식 포함 답변 전체를 직접 그려 `next` 없이 끝냄 (b) 위임 구간을 여러 번 나누면 답변 중간에 빈 줄이 낌 | `hooks/register.tsx`, `hooks/parse.ts`, `tests/render.test.ts`, `tests/support.test.ts` | — | todo | | |
+| 1 | 그림 모드에서 전체 AssistantMessage 를 직접 그려 `next` 없이 끝내는 경로를 수식 블록 그림과 나머지 Markdown 위임으로 교체하고, 쓰이지 않는 분할 경로를 제거 | `ui.render` 체인 합성 | (a) 수식 포함 답변 전체를 직접 그려 `next` 없이 끝냄 (b) 위임 구간을 여러 번 나누면 답변 중간에 빈 줄이 낌 | `hooks/register.tsx`, `hooks/parse.ts`, `tests/render.test.ts`, `tests/support.test.ts` | — | verified | red: `claude plugin test` → 28 pass, 3 fail (`table beside drawn math`: `Received: []`; `math beside a Mermaid fence`: `Received: []`; `markdown block before math`: `Received: undefined`); toggle: `git apply -R .git/toggle.patch` + `claude plugin test` → 26 pass, 3 fail; restored: `git apply .git/toggle.patch` + `claude plugin test` → 29 pass, 0 fail; `node --test tests/font-metrics.test.mjs` → 4 pass, 0 fail; `claude plugin validate --strict .claude-plugin/plugin.json` → `Validation passed`<br>재실행(드라이버): `claude plugin test` → 29 pass, 0 fail(바깥 Mermaid 테스트 삭제 뒤 28) · `node --test tests/font-metrics.test.mjs` → 4 pass · `claude plugin validate --strict .claude-plugin/plugin.json` → Validation passed<br>실제 세션(드라이버, Haiku): latex 바깥(`CLAUDE_CODE_PLUGIN_DIRS=<clone>:<mermaid-inline clone>`) — 한 답변의 수식·다이어그램이 그림, 'latex-inline answered ui.render without next()' 0건 · mermaid 바깥(역순) — 수식·다이어그램이 그림 | |
 | 2 | mod 버전을 `0.3.1` 에서 `0.3.2` 로 올림 | 배포 metadata | — | `.claude-plugin/plugin.json` | 1의 계약과 acceptance 통과 | todo | | |
 | 3 | README 의 `ui.render` 설명에 수식 없는 구간을 다음 훅에 넘겨 Mermaid Inline 등과 한 답변을 나눠 그린다는 점을 넣고 10,000자 항목을 삭제 | 문서 | (a) Hooks 줄에 다음 훅 위임 설명이 없음 (b) 10,000자 답변 전체 Unicode fallback 설명이 새 경로에서는 사실과 다름 | `README.md` | 1의 계약과 acceptance 통과 | todo | | |
 
@@ -76,18 +76,25 @@
 |:--|:--|:--|:--|:--|:--|
 | D1 | 사용자 | 범위 | "latex-inline 수정하고 버전업, /drive-agent-loop ultrafast, 끝나면 /gh-pr-drive automerge" — 이 지시를 방향 승인으로 본다 | 사용자 메시지 (2026-10-04) | 없음 |
 | D2 | 드라이버 | 10,000자 분할 유지 | 기각 — 위임 구간은 엔진이 그려 `Markdown` 요소 한도가 없다 | R0-1 | 아주 긴 답변에서 엔진 렌더 비용 (실측 전) |
-| D3 | 드라이버 | mermaid-inline 바깥 방향의 회귀 고정 | 하니스로 순서를 정할 수 있으면 하니스, 아니면 실제 세션 대조 | R0-3 | 하니스 순서 규칙 미확인 |
+| D3 | 드라이버 | mermaid-inline 바깥 방향의 회귀 고정 | 하니스로 순서를 정할 수 있으면 하니스, 아니면 실제 세션 대조 | `claude plugin test .git/scratch/inline-order-probe` → 기본·append 는 변환 후 텍스트, prepend 는 원문 관찰; tier 로 순서 고정 가능 | 없음 — `prepend` 와 `append` 로 앞뒤 방향 고정 가능 |
+| D4 | 드라이버 | 바깥 Mermaid 방향의 회귀 고정 | 하니스 테스트를 커밋하지 않고 실제 세션 대조로 받는다 — 하니스에서 `tier: 'prepend'` 인 inline 플러그인이 바깥에 온다는 것은 실측했지만, 그 테스트는 수정 전 코드에서도 통과하고 latex-inline이 아니라 시험용 mod를 검사한다 | 실제 세션 두 방향 (위 근거 칸) | 엔진이 돌려준 `{ type: 'engine' }` 요소의 레이아웃은 하니스로 고정하지 않았다(실제 세션 화면으로만 확인) |
 
 ## 전수 소탕 표
 
 | 대상 | 판정 | 코드로 알 수 없는 이유 또는 `파일:행` |
 |:--|:--|:--|
-| 그림 모드가 수식 블록을 직접 그리고 답변 전체를 반환하는 경로 | 구멍 (항목 1) | `hooks/register.tsx:261`, `hooks/register.tsx:367` |
-| 아래로 넘기는 mode·surface fallback | 안전 · 회귀 고정 | `hooks/register.tsx:261`, `hooks/register.tsx:266`, `hooks/support.ts:26` |
-| 수식·Markdown 블록 분류 | 안전 · 재사용 | `hooks/parse.ts:153`, `hooks/parse.ts:178` |
-| Markdown 내 수식 유니코드 변환과 code 보존 | 안전 · 변환기 재사용 | `hooks/unicode.ts:540`, `hooks/unicode.ts:587` |
-| text·off·table 렌더 특성화의 위임 관찰 | 구멍 (항목 1) | `tests/render.test.ts:19`, `tests/render.test.ts:43` |
-| `splitMarkdown` · `MARKDOWN_LIMIT` | 항목 1에서 제거 · 잔여 사용처 없음 | 현재 참조: `hooks/register.tsx:13`, `hooks/register.tsx:279`, `hooks/parse.ts:205`, `tests/support.test.ts:3`, `tests/support.test.ts:8`, `tests/support.test.ts:13` |
+| `hooks/register.tsx` · `session.start` | 안전 · 세션 설정 후 `next(e)` 호출 | `hooks/register.tsx:201` |
+| `hooks/register.tsx` · `command.run` (`latex-inline`) | 정당한 직접 응답 · 이 mod가 등록한 자체 명령 | `hooks/register.tsx:236` |
+| `hooks/register.tsx` · `prompt.compose` | 안전 · `next(e)` 결과에 그림 모드 안내를 추가 | `hooks/register.tsx:252` |
+| `hooks/register.tsx` · `ui.render` (`AssistantMessage`) | 안전 · surface·off·text·수식 없는 경로는 위임; 그림 경로는 직접 수식 블록을 그리고 이어지는 Markdown 을 변환 후 한 구간으로 위임 | `hooks/register.tsx:258`, `hooks/register.tsx:268`, `hooks/register.tsx:364` |
+| `ui.render` 에서 위임하는 Markdown props | 안전 · envelope·props spread 로 `onScreen` 보존; 후속 engine 은 빈 gutter 만 받고 하위 mod 요소는 트리 그대로 한 줄 여백에 둠 | `hooks/register.tsx:364`, `tests/render.test.ts:71` |
+| 렌더 중·실패 수식 | 안전 · 그림이 없으면 원문을 흐리게 그린 뒤 다음 블록 처리를 계속 | `hooks/register.tsx:288` |
+| 수식·Markdown 블록 분류와 구간 내 Unicode 변환 | 안전 · 분류기와 변환 규칙 유지, 위임 전 Markdown 구간에 `unicodeMath` 적용 | `hooks/parse.ts:153`, `hooks/parse.ts:178`, `hooks/unicode.ts:587`, `hooks/register.tsx:363` |
+| text·off·비 terminal fallback | 안전 · 기존 표시 규칙과 `next` 경로 유지 | `hooks/register.tsx:259`, `hooks/register.tsx:266`, `hooks/support.ts:26`; `tests/render.test.ts:22`, `tests/render.test.ts:36` |
+| `MARKDOWN_LIMIT` · `splitMarkdown` | 제거 · `hooks/` 와 `tests/` 에 잔여 참조 없음 | `rg -n "MARKDOWN_LIMIT|splitMarkdown" hooks tests` → 결과 없음 (exit 1) |
+| `tests/render.test.ts` 의 아래쪽 엔진 hook | 테스트 보조 · 위임 구간·`isFirstOfReply`·`onScreen` 을 기록하고 `Text` 결과를 돌려 트리 포함을 확인 | `tests/render.test.ts:10`, `tests/render.test.ts:16`, `tests/render.test.ts:55`, `tests/render.test.ts:73` |
+| `tests/render.test.ts` 의 prepend inline hook | 순서 실측 결과를 사용 · 바깥 Mermaid 역할이 수식 구간은 `next` 에 넘기고 다이어그램 결과는 자기 트리에 포함 | `tests/render.test.ts:92` |
+| `tests/support.test.ts` 의 분할 테스트 2개 | 삭제 · 삭제 대상 외 지원 함수 테스트 유지 | `git diff -- tests/support.test.ts` |
 | manifest 버전 단일 선언 | 항목 2 | `.claude-plugin/plugin.json:4` |
 | README Hooks 설명과 10,000자 fallback 항목 | 항목 3 | `README.md:115`, `README.md:123` |
 
@@ -103,6 +110,3 @@
 - 판정: "반박 4건 반영 조건으로 이 계획으로 시작하는 데 합의한다."
 
 ## 열린 질문
-
-- 항목 1의 첫 작업 — `TestOptions.plugins` 에서 inline plugin 이 시험 대상 latex-inline 의 바깥 또는 안쪽에 오는지, tier 등으로 순서를 실제 고정할 수 있는지 하니스에서 확인한다. 고정 가능하면 Mermaid Inline 바깥 방향도 하니스로 테스트하고, 불가능하면 드라이버가 실제 세션에서 대조한다 (D3).
-- 항목 1 — 테스트 하니스가 바닥 `on('ui.render')` 의 반환값으로 만든 `{ type: 'engine', ref: 0 }` 를 mount tree 안에서 유효한 engine 요소로 받아들이는지는 타입 선언만으로 확인되지 않았다. 구현 시 이 표현을 써 gutter 경로를 직접 고정할 수 있는지 먼저 확인한다. 위임 자체는 바닥 hook 이 받은 텍스트로 독립 검증할 수 있다.

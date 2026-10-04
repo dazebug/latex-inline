@@ -199,27 +199,6 @@ export function hasMath(text: string): boolean {
   return parseBlocks(text).some(block => block.kind !== 'markdown')
 }
 
-// Packs markdown into pieces of at most `limit` characters, the most one
-// Markdown element draws, cutting only between blocks so a code fence stays
-// whole; null when one block alone is longer.
-export function splitMarkdown(text: string, limit: number): string[] | null {
-  const pieces: string[] = []
-  let current = ''
-  for (const lines of rawBlocks(text.split('\n'))) {
-    const block = lines.join('\n')
-    if (block.length > limit) return null
-    const joined = current === '' ? block : `${current}\n\n${block}`
-    if (joined.length <= limit) {
-      current = joined
-    } else {
-      pieces.push(current)
-      current = block
-    }
-  }
-  if (current !== '') pieces.push(current)
-  return pieces
-}
-
 function spaceAfter(token: Token): boolean {
   return token.kind !== 'math' && /\s$/.test(token.text)
 }

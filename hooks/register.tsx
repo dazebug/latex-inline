@@ -1,6 +1,6 @@
 import type { EngineInterface, Register } from 'claude-code'
 
-import { glueTokens, parseBlocks, splitMarkdown, type Token } from './parse'
+import { glueTokens, parseBlocks, type Token } from './parse'
 import { cellWidth, inkFor, mathStyle, type Ink, type MathStyle } from './support'
 import { unicodeMath } from './unicode'
 
@@ -9,9 +9,6 @@ const VERSION = 8
 // Pixels per terminal row in the pictures; the terminal scales each picture
 // to its cells, so this only sets how sharp they are.
 const ROW_PX = 64
-// The most text one Markdown element draws.
-const MARKDOWN_LIMIT = 10_000
-
 // Added to the system prompt where the mod can draw, so Claude writes math
 // the way the parser reads it.
 const MATH_INSTRUCTION = [
@@ -271,16 +268,6 @@ export const register: Register = (on, options) => {
     const blocks = parseBlocks(e.props.text)
     if (!blocks.some(block => block.kind !== 'markdown')) return asUnicode()
 
-    // A markdown block too long for one Markdown element is drawn in pieces;
-    // one that cannot be cut leaves the whole reply to the engine, in Unicode.
-    const markdownPieces = new Map<number, string[]>()
-    for (const [index, block] of blocks.entries()) {
-      if (block.kind !== 'markdown') continue
-      const pieces = splitMarkdown(unicodeMath(block.text, width), MARKDOWN_LIMIT)
-      if (pieces === null) return asUnicode()
-      markdownPieces.set(index, pieces)
-    }
-
     const pictures = new Map<string, Entry | undefined>()
     const jobs: Job[] = []
     for (const block of blocks) {
@@ -293,7 +280,7 @@ export const register: Register = (on, options) => {
       if (!pictures.has(key)) pictures.set(key, await lookup($, job))
     }
 
-    const { Box, Image, Markdown, Text } = $.ui.resolve(e)
+    const { Box, Image, Text } = $.ui.resolve(e)
     let imageCount = 0
 
     // A formula without a picture, still rendering or failed, shows its source dimmed.
@@ -360,39 +347,78 @@ export const register: Register = (on, options) => {
     }
     const bullet = `${'\n'.repeat(Math.floor((firstRows - 1) / 2))}⏺`
 
-    // Replacing the drawing drops the engine's gutter, so draw the reply's
-    // bullet (first block only) and its two-column indent here. The last
-    // column stays empty: a line that fills it spills its final character
-    // onto the next row.
-    return (
-      <Box flexDirection="row" paddingRight={1}>
-        <Box width={2} flexShrink={0}>
-          <Text>{e.props.isFirstOfReply ? bullet : ' '}</Text>
-        </Box>
-        <Box flexDirection="column" gap={1} flexShrink={1}>
-          {blocks.flatMap((block, index) => {
-            if (block.kind === 'markdown') return (markdownPieces.get(index) ?? []).map(text => <Markdown text={text} />)
-            if (block.kind === 'para') return [flow(block.tokens)]
-            if (block.kind === 'display') {
-              return [
-                <Box flexDirection="row" justifyContent="center">
-                  {picture({ tex: block.tex, display: true }, `$$${block.tex}$$`)}
-                </Box>,
-              ]
-            }
-            return [
-              <Box flexDirection="column">
-                {block.items.map(item => (
-                  <Box flexDirection="row" alignItems="center">
-                    <Text>{item.prefix}</Text>
-                    {flow(item.tokens)}
-                  </Box>
-                ))}
-              </Box>,
-            ]
-          })}
-        </Box>
-      </Box>
-    )
+    const rows = []
+    let isFirst = e.props.isFirstOfReply
+    let isTop = true
+    for (let index = 0; index < blocks.length;) {
+      const block = blocks[index]
+      if (!block) break
+      if (block.kind === 'markdown') {
+        const markdown: string[] = [block.text]
+        let nextIndex = index + 1
+        while (true) {
+          const nextBlock = blocks[nextIndex]
+          if (nextBlock?.kind !== 'markdown') break
+          markdown.push(nextBlock.text)
+          nextIndex += 1
+        }
+        const text = unicodeMath(markdown.join('\n\n'), width)
+        const drawn = await next({ ...e, props: { ...e.props, text, isFirstOfReply: isFirst } })
+        if (isTop) {
+          rows.push(drawn)
+        } else if (drawn.type === 'engine' && !isFirst) {
+          rows.push(
+            <Box flexDirection="row">
+              <Box width={2} flexShrink={0} />
+              <Box flexDirection="column" flexGrow={1} flexShrink={1}>
+                {drawn}
+              </Box>
+            </Box>,
+          )
+        } else {
+          rows.push(<Box marginTop={1}>{drawn}</Box>)
+        }
+        isFirst = false
+        isTop = false
+        index = nextIndex
+        continue
+      }
+
+      let content
+      if (block.kind === 'para') {
+        content = flow(block.tokens)
+      } else if (block.kind === 'display') {
+        content = (
+          <Box flexDirection="row" justifyContent="center">
+            {picture({ tex: block.tex, display: true }, `$$${block.tex}$$`)}
+          </Box>
+        )
+      } else {
+        content = (
+          <Box flexDirection="column">
+            {block.items.map(item => (
+              <Box flexDirection="row" alignItems="center">
+                <Text>{item.prefix}</Text>
+                {flow(item.tokens)}
+              </Box>
+            ))}
+          </Box>
+        )
+      }
+      rows.push(
+        <Box flexDirection="row" marginTop={isTop ? 0 : 1} paddingRight={1}>
+          <Box width={2} flexShrink={0}>
+            <Text>{isFirst && isTop ? bullet : ' '}</Text>
+          </Box>
+          <Box flexDirection="column" flexGrow={1} flexShrink={1}>
+            {content}
+          </Box>
+        </Box>,
+      )
+      isFirst = false
+      isTop = false
+      index += 1
+    }
+    return <Box flexDirection="column">{rows}</Box>
   })
 }
