@@ -1,10 +1,10 @@
 # delegate-markdown-runs
 
-- 절차 정본: `drive-agent-loop` 스킬과 이 계획 파일 · 현재 배정: R4 펜스·배치 정리
+- 절차 정본: `drive-agent-loop` 스킬과 이 계획 파일 · 현재 배정: R5 닫는 펜스 들여쓰기 한도
 - 대상: `/Users/choongjaelee/mods/latex-inline-delegate-work`
 - 시작 커밋: `37376ae`
 - 기준 트리: `/Users/choongjaelee/mods/latex-inline-fix_delegate-markdown-runs` (`fix/delegate-markdown-runs`) · 작업 트리: `/Users/choongjaelee/mods/latex-inline-delegate-work` (`fix/delegate-markdown-runs`)
-- 현재: R4 · 마지막 승격 f35fac4 · 리뷰 중 없음 · 게이트 그린
+- 현재: R5 · 마지막 승격 290185a · 리뷰 중 없음 · 게이트 그린
 - 최근 검증자 판정: no · cold · 사용자 메시지
 
 ## 배경 — 확인한 원천
@@ -74,6 +74,7 @@
 | 6 | 산문은 직접 그리고 0열에서 시작하는 펜스 코드 블록만 `next` 로 넘김 | 위임 범위 | (a) 산문 구간이 엔진의 메시지 첫머리 판정을 받음 (b) latex 바깥 + mermaid 안쪽에서 다이어그램 앞 안내문이 0열·빈 줄 둘 (c) 들여쓴 펜스가 목록 산문에서 분리되어 훅에 위임됨 | `hooks/register.tsx`, `hooks/parse.ts`, `tests/render.test.ts`, `tests/support.test.ts`, `README.md` | 1·4·5 | verified | red: `claude plugin test` → 25 pass, 5 fail (표·bullet·사용량 문구·Mermaid 안내 산문·분할 함수 import); toggle: `git diff -- hooks/register.tsx hooks/parse.ts > .git/toggle-item6.patch` · `git apply -R .git/toggle-item6.patch` 뒤 `claude plugin test` → 같은 25 pass, 5 fail · 복원 `git apply .git/toggle-item6.patch`; green: `claude plugin test` → 34 pass, 0 fail (`Ran 34 tests across 4 files`) · `node --test tests/font-metrics.test.mjs` → 4 pass, 0 fail<br>재실행(드라이버): `claude plugin test` → 34 pass, 0 fail · strict 검증 통과 · 실제 세션 latex 바깥: 사용량 문구 문단이 일반 문단, 다이어그램 안내문 직접 그림, 다이어그램 그림<br>들여쓴 펜스 테스트: red `claude plugin test` → 34 pass, 1 fail (`picture mode keeps an indented code fence inside its list prose`: 바닥이 bash fence 텍스트를 두 번 받음) · green `claude plugin test` → 35 pass, 0 fail (`Ran 35 tests across 4 files`) | |
 | 7 | 중첩 펜스가 조각남 → 공유 펜스 판정을 CommonMark 규칙으로 | 펜스 판정 | — | `hooks/parse.ts`, `tests/render.test.ts`, `tests/parse.test.ts`, `README.md` | 6 | claimed | red: `claude plugin test` → 35 pass, 3 fail (backtick info string incorrectly opened a fence; nested backtick and tilde fences each split into two delegated runs); toggle: `git diff -- hooks/parse.ts > .git/toggle-item7.patch` · `git apply -R .git/toggle-item7.patch` 후 `claude plugin test` → 35 pass, 3 fail (같은 세 테스트 실패) · 복원 `git apply .git/toggle-item7.patch`; green: `claude plugin test` → 38 pass, 0 fail (`Ran 38 tests across 4 files`) · `node --test tests/font-metrics.test.mjs` → 4 pass, 0 fail | |
 | 8 | 들여쓴 펜스도 블록 분류에서 추적하고 0열 펜스만 위임하며, 인접 펜스 분리·전체 폭 배치·판별 타입을 고침 | 펜스·배치 정리 | (a) 0∼3칸 opener 제한이 `rawBlocks`·`classify` 에도 걸려 들여쓴 code 가 목록 글자로 납작해지거나 `$SRC/$` 가 가짜 수식이 됨 (b) 닫는 펜스 뒤 탭에서 닫히지 않음 (c) 인접 python·mermaid 펜스가 한 위임 구간으로 합쳐져 mermaid 가 python 을 첫 구간으로 돌려줌 (d) 직접 출력 칸에 `flexGrow` 가 없어 display 수식의 가운데 정렬이 깨지고, non-engine 결과 포장 Box 가 row 방향이라 전체 폭을 채우지 않음 (e) `'prose' | 'code'` 가 한 판별자 멤버로 묶여 `RenderBlock.items` 에서 TS2339 | `hooks/parse.ts`, `hooks/register.tsx`, `tests/render.test.ts`, `tests/parse.test.ts` | 6·7 | claimed | red: `claude plugin test` → 38 pass, 6 fail (새로 추가한 여섯 테스트 전부); toggle: `git apply -R .git/toggle-item8.patch` → 38 pass, 6 fail (펜스·배치 수정만 되돌리고 타입 수정은 유지); 복원 `git apply .git/toggle-item8.patch`; green: `claude plugin test` → 44 pass, 0 fail (`Ran 44 tests across 4 files`) · `node --test tests/font-metrics.test.mjs` → 4 pass, 0 fail · `bunx -p typescript@5 tsc --noEmit -p .claude-plugin/types/tsconfig.json` → exit 0 | |
+| 9 | 닫는 펜스 들여쓰기 한도를 여는 펜스 들여쓰기와 비교해 내부 펜스 쌍이 바깥 코드를 끝내지 못하게 함 | 펜스 판정 | (a) 0열 코드 블록 안의 8칸 들여쓴 펜스 쌍이 안쪽 맨 펜스 줄에서 바깥 블록을 닫고, 진짜 닫는 줄이 새 코드 구간을 열어 뒤 문단·수식이 코드로 넘어감 | `hooks/parse.ts`, `tests/render.test.ts`, `tests/parse.test.ts` | 8 | claimed | red: `claude plugin test` → 44 pass, 2 fail (새 파서·렌더 테스트); toggle: `git apply -R .git/toggle-item9.patch` 뒤 `claude plugin test` → 44 pass, 2 fail (두 새 테스트); 복원 `git apply .git/toggle-item9.patch`; green: `claude plugin test` → 46 pass, 0 fail (`Ran 46 tests across 4 files`) · `node --test tests/font-metrics.test.mjs` → 4 pass, 0 fail · `bunx -p typescript@5 tsc --noEmit -p .claude-plugin/types/tsconfig.json` → exit 0 | |
 
 ## 결정 원장
 
@@ -90,6 +91,7 @@
 | D9 | 드라이버 | cold 3의 비차단 둘 | 기록 — (A) latex 아래에 키 있는 요소를 그리는 mod가 있으면 `next` 를 여러 번 부를 때 키가 겹친다, 수식으로 시작하는 답변 위 빈 줄 없음은 0.3.1부터의 동작 | cold 리뷰 3 | 없음 |
 | D10 | 드라이버 | 나눌 수 없는 10,000자 초과 산문 | 답변 전체를 유니코드로 한 번 넘긴다(0.3.1 동작) — 산문 묶음만 넘기면 엔진의 첫머리 판정을 다시 받는다 | 구현자 충돌 보고 | 없음 |
 | D11 | 드라이버 | cold 4의 비차단 (2) latex 바깥 + mermaid 안쪽에서 아직 안 그려졌거나 못 그리는 다이어그램이 gutter 없이 0열에서 시작하고 빈 줄 둘이 생김 | mermaid-inline 의 첫 구간 배치 문제라 후속 (`dazebug/mermaid-inline#1`) | cold 리뷰 4 | 없음 |
+| D12 | 드라이버 | cold 6 (A) 참조식 링크와 그 정의 사이에 0열 코드 블록이 있으면 서로 다른 `Markdown` 요소로 갈라져 링크가 안 풀림 | 기록만 — 참조식 링크는 드물고, 고치려면 산문 조각을 하나의 요소로 다시 묶어야 한다 | cold 리뷰 6 | 없음 |
 
 ## 전수 소탕 표
 
@@ -133,6 +135,15 @@
 | README Hooks 설명과 10,000자 fallback 항목 | 산문 직접 그림·전체 Unicode fallback 설명으로 갱신 | `README.md:117`, `README.md:124` |
 
 ## 라운드 로그
+
+### R5
+
+#### 리뷰 6 — cold · 37376ae..290185a
+
+- 차단: 들여쓴 펜스 쌍이 든 0열 코드 블록이 안쪽 맨 펜스 줄에서 닫혀 뒤 문단·수식이 코드로 넘어감 — 재현 위 입력
+- 수정: 항목 9
+- 실측: 검증자 탐침, 드라이버 `hooks/parse.ts` 의 `closesFence` 확인
+- 판정: 이 구현에 합의하는가: no
 
 ### R4
 

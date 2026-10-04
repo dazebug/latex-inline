@@ -15,23 +15,31 @@ const LIST_ITEM = /^(\s*)([-*+]|\d+[.)])\s+/
 const WHITESPACE = /\s/
 const DIGIT = /[0-9]/
 
-type Fence = { character: '`' | '~'; length: number; columnZero: boolean }
+type Fence = { character: '`' | '~'; length: number; indent: number; columnZero: boolean }
+
+function indentColumns(indent: string): number {
+  let columns = 0
+  for (const character of indent) columns += character === '\t' ? 4 : 1
+  return columns
+}
 
 function opensFence(line: string): Fence | null {
   const content = line.endsWith('\r') ? line.slice(0, -1) : line
   const match = /^([ \t]*)(`{3,}|~{3,})(.*)$/.exec(content)
+  const indent = match?.[1]
   const marker = match?.[2]
   if (!marker) return null
   const character = marker[0] as Fence['character']
   if (character === '`' && (match[3] ?? '').includes('`')) return null
-  return { character, length: marker.length, columnZero: match[1] === '' }
+  return { character, length: marker.length, indent: indentColumns(indent ?? ''), columnZero: indent === '' }
 }
 
 function closesFence(line: string, fence: Fence): boolean {
   const content = line.endsWith('\r') ? line.slice(0, -1) : line
-  const match = /^[ \t]*(`+|~+)\s*$/.exec(content)
-  const marker = match?.[1]
-  return marker !== undefined && marker[0] === fence.character && marker.length >= fence.length
+  const match = /^([ \t]*)(`+|~+)\s*$/.exec(content)
+  const indent = match?.[1]
+  const marker = match?.[2]
+  return marker !== undefined && marker[0] === fence.character && marker.length >= fence.length && indentColumns(indent ?? '') <= fence.indent + 3
 }
 
 function isEscaped(s: string, i: number): boolean {

@@ -254,3 +254,14 @@ test('a returned text tree after math is wrapped in a growing column', { options
   expect(wrapper?.props.flexDirection).toBe('column')
   expect(wrapper?.children.map(child => typeof child === 'object' && child !== null ? (child as { type?: string }).type : undefined)).toEqual(['Text'])
 })
+
+test('picture mode keeps a nested fence pair inside its outer code block', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  const delegated: string[] = []
+  engine(on, { pictures: true, observe: props => delegated.push(props.text) })
+  await $.session.start(SESSION)
+  const code = '```python\ndef f():\n    """\n        ```python\n        f()\n        ```\n    """\n```'
+  const text = `Loss $L$.\n\n${code}\n\nThen $y$.`
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } })
+  expect(delegated).toEqual([code])
+  expect((await ui.findAll({ type: 'Image' })).map(image => image.props.alt)).toContain('y')
+})
