@@ -100,7 +100,10 @@ async function render(item) {
       scale = oneRow
     } else {
       rows = 3
-      scale = Math.min(1, (row + base) / (ascent * full), (2 * row - base) / (depth * full))
+      // Nonpositive extents do not limit fit in that direction.
+      const ascentScale = ascent > 0 ? (row + base) / (ascent * full) : Infinity
+      const depthScale = depth > 0 ? (2 * row - base) / (depth * full) : Infinity
+      scale = Math.min(1, ascentScale, depthScale)
     }
     em = full * scale
     const middle = Math.floor(rows / 2) * row

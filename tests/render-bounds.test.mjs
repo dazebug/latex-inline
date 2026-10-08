@@ -35,9 +35,9 @@ function heldAwayFromBoxEdges(tex) {
   return `\\hspace{1em}\\rule[-1em]{0pt}{3em}{${tex}}\\hspace{1em}`
 }
 
-function render(items, outDir) {
+function render(items, outDir, style = STYLE) {
   const child = spawnSync(process.execPath, [RENDERER], {
-    input: JSON.stringify({ items, outDir, ...STYLE }),
+    input: JSON.stringify({ items, outDir, ...style }),
     encoding: 'utf8',
   })
   assert.equal(child.error, undefined, child.error?.message)
@@ -104,4 +104,30 @@ test('a clipped overline does not add terminal columns', t => {
     { key: 'overline', tex: String.raw`\overline{abcdefghijklmnop}`, display: true },
   ], outDir)
   assert.equal(results.get('overline').columns, results.get('plain').columns)
+})
+
+test('inline math retains ink with nonpositive ascent or depth', t => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'latex-inline-bounds-'))
+  t.after(() => fs.rmSync(outDir, { recursive: true, force: true }))
+
+  const cases = [
+    { key: 'negative-depth', tex: String.raw`\overset{\frac{a}{b}}{=}` },
+    { key: 'negative-ascent', tex: String.raw`\underset{\frac{\frac{a}{b}}{c}}{\_}` },
+  ]
+  const items = cases.flatMap(({ key, tex }) => [
+    { key, tex, display: false },
+    { key: `${key}-shifted`, tex: heldAwayFromBoxEdges(tex), display: false },
+  ])
+  // Higher resolution reduces subpixel alpha-sum noise.
+  const results = render(items, outDir, { ...STYLE, rowPx: 128 })
+  const failures = []
+  for (const { key } of cases) {
+    assert.equal(results.get(key).rows, 3)
+    try {
+      assertAlphaMatches(results, key, `${key}-shifted`)
+    } catch (error) {
+      failures.push(error.message)
+    }
+  }
+  assert.deepEqual(failures, [])
 })
