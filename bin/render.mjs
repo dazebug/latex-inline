@@ -33,6 +33,35 @@ const textFont = TEXT_FONTS.find(([file]) => fs.existsSync(file))
 
 const request = JSON.parse(fs.readFileSync(0, 'utf8'))
 
+function svgAttribute(tag, name) {
+  return new RegExp(`\\s${name}="([^"]*)"`).exec(tag)?.[1]
+}
+
+function normalizeFullWidthRoot(svg, viewBox) {
+  if (!viewBox) return svg
+
+  const root = /^<svg\b[^>]*>/.exec(svg)[0]
+  const [vx, vy, vw, vh] = viewBox.split(' ').map(Number)
+  const end = svg.lastIndexOf('</svg>')
+  const children = svg.slice(root.length, end)
+  const [, scaleValue] = /<g\b[^>]*\btransform="scale\(([^,]+),-[^)]+\) translate\(/.exec(children) ?? []
+  const scale = Number(scaleValue)
+  if (!Number.isFinite(scale) || scale <= 0) {
+    throw new Error('Could not read MathJax full-width scale')
+  }
+
+  // The content scale maps its pixel viewport back to MathJax units.
+  const opening = root
+    .replace(/\s(?:width|height|viewBox|data-mjx-viewBox)="[^"]*"/g, '')
+    .replace(/>$/, ` viewBox="${viewBox}">`)
+  return `${opening}<g transform="translate(${vx},${vy}) scale(${1 / scale})"><svg width="${vw * scale}" height="${vh * scale}" overflow="visible">${children}</svg></g></svg>`
+}
+
+function hasTextContent(svg) {
+  return [...svg.matchAll(/<text\b[^>]*>([\s\S]*?)<\/text>/g)]
+    .some(([, text]) => text.replace(/<[^>]*>/g, '').length > 0)
+}
+
 await MathJax.init({
   loader: { load: ['input/tex', 'output/svg'], paths: { mathjax: path.dirname(require.resolve('mathjax/package.json')) } },
   // An unknown command fails the formula, which the mod then shows as source.
@@ -45,12 +74,16 @@ const adaptor = MathJax.startup.adaptor
 
 async function render(item) {
   const node = await MathJax.tex2svgPromise(item.tex, { display: Boolean(item.display) })
-  const mathSvg = adaptor.serializeXML(adaptor.firstChild(node)).replaceAll('currentColor', request.color)
+  const sourceSvg = adaptor.serializeXML(adaptor.firstChild(node)).replaceAll('currentColor', request.color)
+  const sourceRoot = /^<svg\b[^>]*>/.exec(sourceSvg)[0]
+  const dataViewBox = svgAttribute(sourceRoot, 'data-mjx-viewBox')
+  const sourceViewBox = dataViewBox ?? svgAttribute(sourceRoot, 'viewBox')
+  const mathSvg = normalizeFullWidthRoot(sourceSvg, dataViewBox)
   // The viewBox is in thousandths of an em, with the baseline at y = 0.
-  const [boxMinX, boxMinY, boxWidth, boxHeight] = /viewBox="([^"]+)"/.exec(mathSvg)[1].split(' ').map(Number)
+  const [boxMinX, boxMinY, boxWidth, boxHeight] = sourceViewBox.split(' ').map(Number)
   const boxMaxX = boxMinX + boxWidth
   const boxMaxY = boxMinY + boxHeight
-  const hasText = mathSvg.includes('<text')
+  const hasText = hasTextContent(mathSvg)
   let font = { loadSystemFonts: false }
   if (hasText) {
     const [file, family] = textFont ?? [undefined, undefined]
@@ -68,9 +101,16 @@ async function render(item) {
   const inkBox = new Resvg(measuringSvg, { font: { loadSystemFonts: false } }).getBBox()
   const svg = hasText ? shaped : mathSvg
 
-  const minX = inkBox && boxMinX - inkBox.x > 1 ? inkBox.x : boxMinX
+  let minX = boxMinX
+  let maxX = boxMaxX
+  if (dataViewBox && inkBox) {
+    minX = inkBox.x
+    maxX = inkBox.x + inkBox.width
+  } else if (inkBox) {
+    if (boxMinX - inkBox.x > 1) minX = inkBox.x
+    if (inkBox.x + inkBox.width - boxMaxX > 1) maxX = inkBox.x + inkBox.width
+  }
   const minY = inkBox && boxMinY - inkBox.y > 1 ? inkBox.y : boxMinY
-  const maxX = inkBox && inkBox.x + inkBox.width - boxMaxX > 1 ? inkBox.x + inkBox.width : boxMaxX
   const maxY = inkBox && inkBox.y + inkBox.height - boxMaxY > 1 ? inkBox.y + inkBox.height : boxMaxY
   const ascent = -minY / 1000
   const depth = maxY / 1000

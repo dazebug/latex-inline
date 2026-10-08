@@ -67,6 +67,13 @@ function assertAlphaMatches(results, formulaKey, shiftedKey) {
   assert.ok(relativeDifference <= 0.005, `${formulaKey}: alpha sums ${formula} and ${shifted} differ by ${(relativeDifference * 100).toFixed(2)}%`)
 }
 
+function assertAlphaMatchesParts(results, wholeKey, partKeys) {
+  const whole = alphaSum(results.get(wholeKey))
+  const parts = partKeys.reduce((sum, key) => sum + alphaSum(results.get(key)), 0)
+  const relativeDifference = Math.abs(whole - parts) / parts
+  assert.ok(relativeDifference <= 0.005, `${wholeKey}: alpha sum ${whole} differs from parts ${parts} by ${(relativeDifference * 100).toFixed(2)}%`)
+}
+
 test('italic j ink is retained in inline and display math', t => {
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'latex-inline-bounds-'))
   t.after(() => fs.rmSync(outDir, { recursive: true, force: true }))
@@ -128,6 +135,44 @@ test('inline math retains ink with nonpositive ascent or depth', t => {
     } catch (error) {
       failures.push(error.message)
     }
+  }
+  assert.deepEqual(failures, [])
+})
+
+test('full-width roots retain tagged and forced-break formula ink', t => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'latex-inline-bounds-'))
+  t.after(() => fs.rmSync(outDir, { recursive: true, force: true }))
+
+  const items = [
+    { key: 'tagged', tex: String.raw`E = mc^2 \tag{1}`, display: true },
+    { key: 'tagged-formula', tex: 'E = mc^2', display: true },
+    { key: 'tagged-label', tex: String.raw`\text{(1)}`, display: true },
+    { key: 'line-break', tex: String.raw`a \\ b`, display: false },
+    { key: 'line-a', tex: 'a', display: false },
+    { key: 'line-b', tex: 'b', display: false },
+  ]
+  // Higher output resolution reduces subpixel alpha-sum noise.
+  const results = render(items, outDir, { ...STYLE, rowPx: 128 })
+  const failures = []
+  for (const [wholeKey, partKeys] of [
+    ['tagged', ['tagged-formula', 'tagged-label']],
+    ['line-break', ['line-a', 'line-b']],
+  ]) {
+    try {
+      assertAlphaMatchesParts(results, wholeKey, partKeys)
+    } catch (error) {
+      failures.push(error.message)
+    }
+  }
+
+  try {
+    assert.equal(results.get('tagged').rows, 3)
+    assert.ok(results.get('tagged').columns > results.get('tagged-formula').columns)
+    assert.equal(results.get('line-break').rows, 3)
+    // A natural-width two-line formula stays within a few terminal cells.
+    assert.ok(results.get('line-break').columns <= 3)
+  } catch (error) {
+    failures.push(error.message)
   }
   assert.deepEqual(failures, [])
 })
