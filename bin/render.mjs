@@ -1,6 +1,8 @@
 // Renders TeX formulas to PNGs sized to whole terminal cells: MathJax lays
-// the formula out as SVG and resvg rasterizes it. MathJax's viewBox can omit
-// ink from fixed-metric fallback text and overhanging italic math glyphs.
+// the formula out as SVG and resvg rasterizes it. A picture covers the ink
+// resvg measures as well as MathJax's box, because the box leaves some ink
+// out: MathJax gives text it has no glyph for a fixed 0.75em height (Hangul
+// reaches about 0.85em), and italic glyphs such as j overhang their boxes.
 //
 // Reads one JSON request on stdin and writes one JSON answer on stdout. Each
 // picture is padded to an exact number of cells: the terminal stretches a
@@ -37,7 +39,10 @@ function svgAttribute(tag, name) {
   return new RegExp(`\\s${name}="([^"]*)"`).exec(tag)?.[1]
 }
 
-// Resvg's toString leaves attribute values unescaped, so remove unused ids.
+// Drops ids nothing refers to before resvg reads the formula. resvg's
+// toString writes attribute values back unescaped, so an id from TeX with <
+// or &, as from \tag{A\&B} or \cssId, breaks the shaped copy when it is
+// parsed again. The glyph definitions MathJax refers to keep theirs.
 function removeUnreferencedIds(svg) {
   const references = new Set()
   const hrefs = svg.matchAll(/(?:^|\s)(?:xlink:)?href="#([^"]+)"/g)
@@ -48,6 +53,11 @@ function removeUnreferencedIds(svg) {
     references.has(id) ? attribute : '')
 }
 
+// MathJax gives an equation with a \tag, and inline math with a forced line
+// break, a root as wide as its container: width="100%", the box only in
+// data-mjx-viewBox, and the content drawn in pixels under scale(s,-s). Put
+// that content in a viewport of the box's own width and map it back to
+// MathJax's units, so it draws like any other formula.
 function normalizeFullWidthRoot(svg, viewBox) {
   if (!viewBox) return svg
 
@@ -61,18 +71,25 @@ function normalizeFullWidthRoot(svg, viewBox) {
     throw new Error('Could not read MathJax full-width scale')
   }
 
-  // The content scale maps its pixel viewport back to MathJax units.
   const opening = root
     .replace(/\s(?:width|height|viewBox|data-mjx-viewBox)="[^"]*"/g, '')
     .replace(/>$/, ` viewBox="${viewBox}">`)
   return `${opening}<g transform="translate(${vx},${vy}) scale(${1 / scale})"><svg width="${vw * scale}" height="${vh * scale}" overflow="visible">${children}</svg></g></svg>`
 }
 
+// Only text with content needs a font: MathJax adds an empty <text> to align
+// tags.
 function hasTextContent(svg) {
   return [...svg.matchAll(/<text\b[^>]*>([\s\S]*?)<\/text>/g)]
     .some(([, text]) => text.replace(/<[^>]*>/g, '').length > 0)
 }
 
+// resvg's getBBox ignores clipping, and MathJax draws a stretched line or
+// arrow (\overline, \underline, \overrightarrow) by clipping a stretched
+// glyph to the line's box, so measuring it as drawn counts the cut-away
+// glyph. In the copy to measure, draw each clip shape in place of the group
+// it clips: the clipped ink lies inside that shape. A group whose clip path
+// this does not handle stays visible, which can only measure too large.
 function measuringSvgWithClipShapes(svg) {
   const clipShapes = new Map()
   for (const [, attributes, body] of svg.matchAll(/<clipPath\b([^>]*)>([\s\S]*?)<\/clipPath>/g)) {
@@ -136,14 +153,19 @@ async function render(item) {
       : { loadSystemFonts: true }
   }
 
-  // MathJax glyphs are paths; only fallback <text> needs a font.
+  // MathJax glyphs are paths; only fallback <text> needs a font. Shape it
+  // once here: the shaped copy, with text as paths, is what gets measured
+  // and, for text, drawn.
   const shaped = new Resvg(mathSvg, { fitTo: { mode: 'original' }, font }).toString()
-  // Draw supported clip shapes; their paths bound ink beyond MathJax's box.
-  // Keep unsupported clips visible because their uncut bounds are safer.
   const measuringSvg = measuringSvgWithClipShapes(shaped)
   const inkBox = new Resvg(measuringSvg, { font: { loadSystemFonts: false } }).getBBox()
   const svg = hasText ? shaped : mathSvg
 
+  // Widen a side only for ink more than a thousandth of an em outside
+  // MathJax's box. The box comes from the font's glyph data and misses the
+  // outlines' extremes by fractions of a unit; widening for those would
+  // redraw, a hair off, pictures whose ink already fits. A full-width layout
+  // spreads over its container, so its width comes from the ink alone.
   let minX = boxMinX
   let maxX = boxMaxX
   if (dataViewBox && inkBox) {
@@ -183,7 +205,9 @@ async function render(item) {
       scale = oneRow
     } else {
       rows = 3
-      // Nonpositive extents do not limit fit in that direction.
+      // A side that does not cross the baseline puts no limit on the scale:
+      // dividing by a negative extent, as for \stackrel{?}{=}, made the
+      // scale negative and the picture empty.
       const ascentScale = ascent > 0 ? (row + base) / (ascent * full) : Infinity
       const depthScale = depth > 0 ? (2 * row - base) / (depth * full) : Infinity
       scale = Math.min(1, ascentScale, depthScale)

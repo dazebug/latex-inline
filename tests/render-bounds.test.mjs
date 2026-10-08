@@ -1,4 +1,6 @@
-// Compare alpha sums with the same formula held clear of MathJax's box edges.
+// Run with `node --test tests/`. Each test runs bin/render.mjs and compares a
+// picture's ink, as its alpha sum, with pictures nothing can cut: the same
+// formula held clear of MathJax's box edges, or its parts drawn separately.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
@@ -11,6 +13,7 @@ import { test } from 'node:test'
 const require = createRequire(import.meta.url)
 const { Resvg } = require('@resvg/resvg-js')
 const RENDERER = fileURLToPath(new URL('../bin/render.mjs', import.meta.url))
+// The fallback fonts bin/render.mjs looks for.
 const CJK_FONTS = [
   '/System/Library/Fonts/AppleSDGothicNeo.ttc',
   '/System/Library/Fonts/Hiragino Sans GB.ttc',
@@ -31,6 +34,8 @@ const STYLE = {
   color: '#ffffff',
 }
 
+// Space and an invisible rule move the formula off its box edges without
+// adding ink.
 function heldAwayFromBoxEdges(tex) {
   return `\\hspace{1em}\\rule[-1em]{0pt}{3em}{${tex}}\\hspace{1em}`
 }
@@ -78,7 +83,6 @@ test('italic j ink is retained in inline and display math', t => {
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'latex-inline-bounds-'))
   t.after(() => fs.rmSync(outDir, { recursive: true, force: true }))
 
-  // Keep the perturbation ink-free while moving the formula away from the box edges.
   const items = [
     { key: 'j-display', tex: 'j', display: true },
     { key: 'j-display-shifted', tex: heldAwayFromBoxEdges('j'), display: true },
