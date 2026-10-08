@@ -150,6 +150,9 @@ test('full-width roots retain tagged and forced-break formula ink', t => {
     { key: 'line-break', tex: String.raw`a \\ b`, display: false },
     { key: 'line-a', tex: 'a', display: false },
     { key: 'line-b', tex: 'b', display: false },
+    { key: 'underline-tag', tex: String.raw`\underline{\hspace{3em}} \tag{1}`, display: true },
+    { key: 'underline-tag-rule', tex: String.raw`\underline{\hspace{3em}}`, display: true },
+    { key: 'underline-tag-label', tex: String.raw`\text{(1)}`, display: true },
   ]
   // Higher output resolution reduces subpixel alpha-sum noise.
   const results = render(items, outDir, { ...STYLE, rowPx: 128 })
@@ -157,6 +160,7 @@ test('full-width roots retain tagged and forced-break formula ink', t => {
   for (const [wholeKey, partKeys] of [
     ['tagged', ['tagged-formula', 'tagged-label']],
     ['line-break', ['line-a', 'line-b']],
+    ['underline-tag', ['underline-tag-rule', 'underline-tag-label']],
   ]) {
     try {
       assertAlphaMatchesParts(results, wholeKey, partKeys)
@@ -165,7 +169,15 @@ test('full-width roots retain tagged and forced-break formula ink', t => {
     }
   }
 
+  const inlineUnderline = render([
+    { key: 'line-break-underline', tex: String.raw`x \\ \underline{\hspace{3em}}`, display: false },
+    { key: 'line-break-x', tex: 'x', display: false },
+    { key: 'line-break-underline-only', tex: String.raw`\underline{\hspace{3em}}`, display: false },
+  ], outDir, { ...STYLE, rowPx: 128, lineEm: 1.5 })
   try {
+    assertAlphaMatchesParts(inlineUnderline, 'line-break-underline', ['line-break-x', 'line-break-underline-only'])
+    assert.equal(inlineUnderline.get('line-break-underline').rows, 3)
+    assert.ok(inlineUnderline.get('line-break-underline').columns <= 5)
     assert.equal(results.get('tagged').rows, 3)
     assert.ok(results.get('tagged').columns > results.get('tagged-formula').columns)
     assert.equal(results.get('line-break').rows, 3)

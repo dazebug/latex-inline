@@ -62,6 +62,37 @@ function hasTextContent(svg) {
     .some(([, text]) => text.replace(/<[^>]*>/g, '').length > 0)
 }
 
+function measuringSvgWithClipShapes(svg) {
+  const clipShapes = new Map()
+  for (const [, attributes, body] of svg.matchAll(/<clipPath\b([^>]*)>([\s\S]*?)<\/clipPath>/g)) {
+    const opening = `<clipPath${attributes}>`
+    const names = [...opening.matchAll(/\s([\w:.-]+)="[^"]*"/g)].map(([, name]) => name)
+    const id = svgAttribute(opening, 'id')
+    const units = svgAttribute(opening, 'clipPathUnits')
+    const shapes = [...body.matchAll(/<([A-Za-z][\w:-]*)\b/g)].map(([, name]) => name)
+    if (!id || names.some(name => !['id', 'clipPathUnits'].includes(name))) continue
+    if (units && units !== 'userSpaceOnUse') continue
+    if (!shapes.length || shapes.some(name => name !== 'path')) continue
+    clipShapes.set(id, body)
+  }
+
+  return svg.replace(/<g\b[^>]*>/g, tag => {
+    const reference = svgAttribute(tag, 'clip-path')
+    const [, id] = /^url\(#([^)]+)\)$/.exec(reference ?? '') ?? []
+    const shape = clipShapes.get(id)
+    if (!shape || tag.endsWith('/>')) return tag
+
+    const transform = svgAttribute(tag, 'transform')
+    const drawnShape = transform
+      ? `<g transform="${transform}">${shape}</g>`
+      : `<g>${shape}</g>`
+    const hidden = /\sdisplay="[^"]*"/.test(tag)
+      ? tag.replace(/\sdisplay="[^"]*"/, ' display="none"')
+      : tag.replace(/>$/, ' display="none">')
+    return `${drawnShape}${hidden}`
+  })
+}
+
 await MathJax.init({
   loader: { load: ['input/tex', 'output/svg'], paths: { mathjax: path.dirname(require.resolve('mathjax/package.json')) } },
   // An unknown command fails the formula, which the mod then shows as source.
@@ -94,10 +125,9 @@ async function render(item) {
 
   // MathJax glyphs are paths; only fallback <text> needs a font.
   const shaped = new Resvg(mathSvg, { fitTo: { mode: 'original' }, font }).toString()
-  // Resvg bounds ignore clips, so hide clipped groups in this copy. Their
-  // cut ink stays inside MathJax's box. Font metrics can differ from
-  // outlines by less than one unit, so those edges stay unchanged.
-  const measuringSvg = shaped.replace(/<g\b(?=[^>]*\bclip-path=)/g, '<g display="none"')
+  // Draw supported clip shapes; their paths bound ink beyond MathJax's box.
+  // Keep unsupported clips visible because their uncut bounds are safer.
+  const measuringSvg = measuringSvgWithClipShapes(shaped)
   const inkBox = new Resvg(measuringSvg, { font: { loadSystemFonts: false } }).getBBox()
   const svg = hasText ? shaped : mathSvg
 
