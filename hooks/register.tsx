@@ -5,7 +5,7 @@ import { cellWidth, inkFor, mathStyle, type Ink, type MathStyle } from './suppor
 import { unicodeMath } from './unicode'
 
 // Part of every cache key: bump it when bin/render.mjs draws differently.
-const VERSION = 8
+const VERSION = 9
 // Pixels per terminal row in the pictures; the terminal scales each picture
 // to its cells, so this only sets how sharp they are.
 const ROW_PX = 64

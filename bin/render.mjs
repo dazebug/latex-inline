@@ -1,5 +1,8 @@
 // Renders TeX formulas to PNGs sized to whole terminal cells: MathJax lays
-// the formula out as SVG and resvg rasterizes it.
+// the formula out as SVG and resvg rasterizes it. A picture covers the ink
+// resvg measures as well as MathJax's box, because the box leaves some ink
+// out: MathJax gives text it has no glyph for a fixed 0.75em height (Hangul
+// reaches about 0.85em), and italic glyphs such as j overhang their boxes.
 //
 // Reads one JSON request on stdin and writes one JSON answer on stdout. Each
 // picture is padded to an exact number of cells: the terminal stretches a
@@ -32,6 +35,92 @@ const textFont = TEXT_FONTS.find(([file]) => fs.existsSync(file))
 
 const request = JSON.parse(fs.readFileSync(0, 'utf8'))
 
+function svgAttribute(tag, name) {
+  return new RegExp(`\\s${name}="([^"]*)"`).exec(tag)?.[1]
+}
+
+// Drops ids nothing refers to before resvg reads the formula. resvg's
+// toString writes attribute values back unescaped, so an id from TeX with <
+// or &, as from \tag{A\&B} or \cssId, breaks the shaped copy when it is
+// parsed again. The glyph definitions MathJax refers to keep theirs.
+function removeUnreferencedIds(svg) {
+  const references = new Set()
+  const hrefs = svg.matchAll(/(?:^|\s)(?:xlink:)?href="#([^"]+)"/g)
+  for (const [, id] of hrefs) references.add(id)
+  const urls = svg.matchAll(/url\(#([^)]+)\)/g)
+  for (const [, id] of urls) references.add(id)
+  return svg.replace(/\sid="([^"]*)"/g, (attribute, id) =>
+    references.has(id) ? attribute : '')
+}
+
+// MathJax gives an equation with a \tag, and inline math with a forced line
+// break, a root as wide as its container: width="100%", the box only in
+// data-mjx-viewBox, and the content drawn in pixels under scale(s,-s). Put
+// that content in a viewport of the box's own width and map it back to
+// MathJax's units, so it draws like any other formula.
+function normalizeFullWidthRoot(svg, viewBox) {
+  if (!viewBox) return svg
+
+  const root = /^<svg\b[^>]*>/.exec(svg)[0]
+  const [vx, vy, vw, vh] = viewBox.split(' ').map(Number)
+  const end = svg.lastIndexOf('</svg>')
+  const children = svg.slice(root.length, end)
+  const [, scaleValue] = /<g\b[^>]*\btransform="scale\(([^,]+),-[^)]+\) translate\(/.exec(children) ?? []
+  const scale = Number(scaleValue)
+  if (!Number.isFinite(scale) || scale <= 0) {
+    throw new Error('Could not read MathJax full-width scale')
+  }
+
+  const opening = root
+    .replace(/\s(?:width|height|viewBox|data-mjx-viewBox)="[^"]*"/g, '')
+    .replace(/>$/, ` viewBox="${viewBox}">`)
+  return `${opening}<g transform="translate(${vx},${vy}) scale(${1 / scale})"><svg width="${vw * scale}" height="${vh * scale}" overflow="visible">${children}</svg></g></svg>`
+}
+
+// Only text with content needs a font: MathJax adds an empty <text> to align
+// tags.
+function hasTextContent(svg) {
+  return [...svg.matchAll(/<text\b[^>]*>([\s\S]*?)<\/text>/g)]
+    .some(([, text]) => text.replace(/<[^>]*>/g, '').length > 0)
+}
+
+// resvg's getBBox ignores clipping, and MathJax draws a stretched line or
+// arrow (\overline, \underline, \overrightarrow) by clipping a stretched
+// glyph to the line's box, so measuring it as drawn counts the cut-away
+// glyph. In the copy to measure, draw each clip shape in place of the group
+// it clips: the clipped ink lies inside that shape. A group whose clip path
+// this does not handle stays visible, which can only measure too large.
+function measuringSvgWithClipShapes(svg) {
+  const clipShapes = new Map()
+  for (const [, attributes, body] of svg.matchAll(/<clipPath\b([^>]*)>([\s\S]*?)<\/clipPath>/g)) {
+    const opening = `<clipPath${attributes}>`
+    const names = [...opening.matchAll(/\s([\w:.-]+)="[^"]*"/g)].map(([, name]) => name)
+    const id = svgAttribute(opening, 'id')
+    const units = svgAttribute(opening, 'clipPathUnits')
+    const shapes = [...body.matchAll(/<([A-Za-z][\w:-]*)\b/g)].map(([, name]) => name)
+    if (!id || names.some(name => !['id', 'clipPathUnits'].includes(name))) continue
+    if (units && units !== 'userSpaceOnUse') continue
+    if (!shapes.length || shapes.some(name => name !== 'path')) continue
+    clipShapes.set(id, body)
+  }
+
+  return svg.replace(/<g\b[^>]*>/g, tag => {
+    const reference = svgAttribute(tag, 'clip-path')
+    const [, id] = /^url\(#([^)]+)\)$/.exec(reference ?? '') ?? []
+    const shape = clipShapes.get(id)
+    if (!shape || tag.endsWith('/>')) return tag
+
+    const transform = svgAttribute(tag, 'transform')
+    const drawnShape = transform
+      ? `<g transform="${transform}">${shape}</g>`
+      : `<g>${shape}</g>`
+    const hidden = /\sdisplay="[^"]*"/.test(tag)
+      ? tag.replace(/\sdisplay="[^"]*"/, ' display="none"')
+      : tag.replace(/>$/, ' display="none">')
+    return `${drawnShape}${hidden}`
+  })
+}
+
 await MathJax.init({
   loader: { load: ['input/tex', 'output/svg'], paths: { mathjax: path.dirname(require.resolve('mathjax/package.json')) } },
   // An unknown command fails the formula, which the mod then shows as source.
@@ -44,12 +133,53 @@ const adaptor = MathJax.startup.adaptor
 
 async function render(item) {
   const node = await MathJax.tex2svgPromise(item.tex, { display: Boolean(item.display) })
-  const svg = adaptor.serializeXML(adaptor.firstChild(node))
+  const sourceSvg = removeUnreferencedIds(
+    adaptor.serializeXML(adaptor.firstChild(node)).replaceAll('currentColor', request.color),
+  )
+  const sourceRoot = /^<svg\b[^>]*>/.exec(sourceSvg)[0]
+  const dataViewBox = svgAttribute(sourceRoot, 'data-mjx-viewBox')
+  const sourceViewBox = dataViewBox ?? svgAttribute(sourceRoot, 'viewBox')
+  const mathSvg = normalizeFullWidthRoot(sourceSvg, dataViewBox)
   // The viewBox is in thousandths of an em, with the baseline at y = 0.
-  const [minX, minY, boxWidth, boxHeight] = /viewBox="([^"]+)"/.exec(svg)[1].split(' ').map(Number)
+  const [boxMinX, boxMinY, boxWidth, boxHeight] = sourceViewBox.split(' ').map(Number)
+  const boxMaxX = boxMinX + boxWidth
+  const boxMaxY = boxMinY + boxHeight
+  const hasText = hasTextContent(mathSvg)
+  let font = { loadSystemFonts: false }
+  if (hasText) {
+    const [file, family] = textFont ?? [undefined, undefined]
+    font = file
+      ? { loadSystemFonts: false, fontFiles: [file], defaultFontFamily: family, serifFamily: family, sansSerifFamily: family }
+      : { loadSystemFonts: true }
+  }
+
+  // MathJax glyphs are paths; only fallback <text> needs a font. Shape it
+  // once here: the shaped copy, with text as paths, is what gets measured
+  // and, for text, drawn.
+  const shaped = new Resvg(mathSvg, { fitTo: { mode: 'original' }, font }).toString()
+  const measuringSvg = measuringSvgWithClipShapes(shaped)
+  const inkBox = new Resvg(measuringSvg, { font: { loadSystemFonts: false } }).getBBox()
+  const svg = hasText ? shaped : mathSvg
+
+  // Widen a side only for ink more than a thousandth of an em outside
+  // MathJax's box. The box comes from the font's glyph data and misses the
+  // outlines' extremes by fractions of a unit; widening for those would
+  // redraw, a hair off, pictures whose ink already fits. A full-width layout
+  // spreads over its container, so its width comes from the ink alone.
+  let minX = boxMinX
+  let maxX = boxMaxX
+  if (dataViewBox && inkBox) {
+    minX = inkBox.x
+    maxX = inkBox.x + inkBox.width
+  } else if (inkBox) {
+    if (boxMinX - inkBox.x > 1) minX = inkBox.x
+    if (inkBox.x + inkBox.width - boxMaxX > 1) maxX = inkBox.x + inkBox.width
+  }
+  const minY = inkBox && boxMinY - inkBox.y > 1 ? inkBox.y : boxMinY
+  const maxY = inkBox && inkBox.y + inkBox.height - boxMaxY > 1 ? inkBox.y + inkBox.height : boxMaxY
   const ascent = -minY / 1000
-  const depth = (boxHeight + minY) / 1000
-  const widthEm = boxWidth / 1000
+  const depth = maxY / 1000
+  const widthEm = (maxX - minX) / 1000
 
   const row = request.rowPx
   const cellWidth = row / request.cellRatio
@@ -75,7 +205,12 @@ async function render(item) {
       scale = oneRow
     } else {
       rows = 3
-      scale = Math.min(1, (row + base) / (ascent * full), (2 * row - base) / (depth * full))
+      // A side that does not cross the baseline puts no limit on the scale:
+      // dividing by a negative extent, as for \stackrel{?}{=}, made the
+      // scale negative and the picture empty.
+      const ascentScale = ascent > 0 ? (row + base) / (ascent * full) : Infinity
+      const depthScale = depth > 0 ? (2 * row - base) / (depth * full) : Infinity
+      scale = Math.min(1, ascentScale, depthScale)
     }
     em = full * scale
     const middle = Math.floor(rows / 2) * row
@@ -90,20 +225,11 @@ async function render(item) {
   const y = baselineY - ascent * em
 
   const inner = svg
-    .replace(/^<svg[^>]*>/, `<svg x="${x}" y="${y}" width="${formulaWidth}" height="${(ascent + depth) * em}" viewBox="${minX} ${minY} ${boxWidth} ${boxHeight}">`)
-    .replaceAll('currentColor', request.color)
+    .replace(/^<svg[^>]*>/, `<svg x="${x}" y="${y}" width="${formulaWidth}" height="${(ascent + depth) * em}" viewBox="${minX} ${minY} ${maxX - minX} ${maxY - minY}">`)
   const page = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${inner}</svg>`
-  // MathJax draws its own glyphs as paths, so resvg skips the system fonts,
-  // which it would scan on every picture. Text MathJax has no glyph for comes
-  // as <text> and needs a font.
-  let font = { loadSystemFonts: false }
-  if (page.includes('<text')) {
-    const [file, family] = textFont ?? [undefined, undefined]
-    font = file
-      ? { loadSystemFonts: false, fontFiles: [file], defaultFontFamily: family, serifFamily: family, sansSerifFamily: family }
-      : { loadSystemFonts: true }
-  }
-  const png = new Resvg(page, { fitTo: { mode: 'original' }, font }).render().asPng()
+  // Fallback text was shaped above into paths, so rasterize the final page
+  // without loading fonts.
+  const png = new Resvg(page, { fitTo: { mode: 'original' }, font: { loadSystemFonts: false } }).render().asPng()
 
   const file = path.join(request.outDir, `${item.key}.png`)
   fs.writeFileSync(file, png)
