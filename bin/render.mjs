@@ -37,6 +37,17 @@ function svgAttribute(tag, name) {
   return new RegExp(`\\s${name}="([^"]*)"`).exec(tag)?.[1]
 }
 
+// Resvg's toString leaves attribute values unescaped, so remove unused ids.
+function removeUnreferencedIds(svg) {
+  const references = new Set()
+  const hrefs = svg.matchAll(/(?:^|\s)(?:xlink:)?href="#([^"]+)"/g)
+  for (const [, id] of hrefs) references.add(id)
+  const urls = svg.matchAll(/url\(#([^)]+)\)/g)
+  for (const [, id] of urls) references.add(id)
+  return svg.replace(/\sid="([^"]*)"/g, (attribute, id) =>
+    references.has(id) ? attribute : '')
+}
+
 function normalizeFullWidthRoot(svg, viewBox) {
   if (!viewBox) return svg
 
@@ -105,7 +116,9 @@ const adaptor = MathJax.startup.adaptor
 
 async function render(item) {
   const node = await MathJax.tex2svgPromise(item.tex, { display: Boolean(item.display) })
-  const sourceSvg = adaptor.serializeXML(adaptor.firstChild(node)).replaceAll('currentColor', request.color)
+  const sourceSvg = removeUnreferencedIds(
+    adaptor.serializeXML(adaptor.firstChild(node)).replaceAll('currentColor', request.color),
+  )
   const sourceRoot = /^<svg\b[^>]*>/.exec(sourceSvg)[0]
   const dataViewBox = svgAttribute(sourceRoot, 'data-mjx-viewBox')
   const sourceViewBox = dataViewBox ?? svgAttribute(sourceRoot, 'viewBox')

@@ -188,3 +188,19 @@ test('full-width roots retain tagged and forced-break formula ink', t => {
   }
   assert.deepEqual(failures, [])
 })
+
+test('MathJax ids from TeX text do not break SVG serialization', t => {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'latex-inline-bounds-'))
+  t.after(() => fs.rmSync(outDir, { recursive: true, force: true }))
+
+  const results = render([
+    { key: 'css-id', tex: String.raw`\cssId{a<b}{x}`, display: true },
+    { key: 'plain-x', tex: 'x', display: true },
+    { key: 'tagged', tex: String.raw`x \tag{A\&B}`, display: true },
+    { key: 'tagged-formula', tex: 'x', display: true },
+    { key: 'tagged-label', tex: String.raw`\text{(A\&B)}`, display: true },
+  ], outDir, { ...STYLE, rowPx: 128 })
+
+  assertAlphaMatchesParts(results, 'css-id', ['plain-x'])
+  assertAlphaMatchesParts(results, 'tagged', ['tagged-formula', 'tagged-label'])
+})
