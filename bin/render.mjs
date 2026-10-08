@@ -1,5 +1,6 @@
 // Renders TeX formulas to PNGs sized to whole terminal cells: MathJax lays
-// the formula out as SVG and resvg rasterizes it.
+// the formula out as SVG and resvg rasterizes it. MathJax's viewBox can omit
+// ink from fixed-metric fallback text and overhanging italic math glyphs.
 //
 // Reads one JSON request on stdin and writes one JSON answer on stdout. Each
 // picture is padded to an exact number of cells: the terminal stretches a
@@ -44,12 +45,36 @@ const adaptor = MathJax.startup.adaptor
 
 async function render(item) {
   const node = await MathJax.tex2svgPromise(item.tex, { display: Boolean(item.display) })
-  const svg = adaptor.serializeXML(adaptor.firstChild(node))
+  const mathSvg = adaptor.serializeXML(adaptor.firstChild(node)).replaceAll('currentColor', request.color)
   // The viewBox is in thousandths of an em, with the baseline at y = 0.
-  const [minX, minY, boxWidth, boxHeight] = /viewBox="([^"]+)"/.exec(svg)[1].split(' ').map(Number)
+  const [boxMinX, boxMinY, boxWidth, boxHeight] = /viewBox="([^"]+)"/.exec(mathSvg)[1].split(' ').map(Number)
+  const boxMaxX = boxMinX + boxWidth
+  const boxMaxY = boxMinY + boxHeight
+  const hasText = mathSvg.includes('<text')
+  let font = { loadSystemFonts: false }
+  if (hasText) {
+    const [file, family] = textFont ?? [undefined, undefined]
+    font = file
+      ? { loadSystemFonts: false, fontFiles: [file], defaultFontFamily: family, serifFamily: family, sansSerifFamily: family }
+      : { loadSystemFonts: true }
+  }
+
+  // MathJax glyphs are paths; only fallback <text> needs a font.
+  const shaped = new Resvg(mathSvg, { fitTo: { mode: 'original' }, font }).toString()
+  // Resvg bounds ignore clips, so hide clipped groups in this copy. Their
+  // cut ink stays inside MathJax's box. Font metrics can differ from
+  // outlines by less than one unit, so those edges stay unchanged.
+  const measuringSvg = shaped.replace(/<g\b(?=[^>]*\bclip-path=)/g, '<g display="none"')
+  const inkBox = new Resvg(measuringSvg, { font: { loadSystemFonts: false } }).getBBox()
+  const svg = hasText ? shaped : mathSvg
+
+  const minX = inkBox && boxMinX - inkBox.x > 1 ? inkBox.x : boxMinX
+  const minY = inkBox && boxMinY - inkBox.y > 1 ? inkBox.y : boxMinY
+  const maxX = inkBox && inkBox.x + inkBox.width - boxMaxX > 1 ? inkBox.x + inkBox.width : boxMaxX
+  const maxY = inkBox && inkBox.y + inkBox.height - boxMaxY > 1 ? inkBox.y + inkBox.height : boxMaxY
   const ascent = -minY / 1000
-  const depth = (boxHeight + minY) / 1000
-  const widthEm = boxWidth / 1000
+  const depth = maxY / 1000
+  const widthEm = (maxX - minX) / 1000
 
   const row = request.rowPx
   const cellWidth = row / request.cellRatio
@@ -90,20 +115,11 @@ async function render(item) {
   const y = baselineY - ascent * em
 
   const inner = svg
-    .replace(/^<svg[^>]*>/, `<svg x="${x}" y="${y}" width="${formulaWidth}" height="${(ascent + depth) * em}" viewBox="${minX} ${minY} ${boxWidth} ${boxHeight}">`)
-    .replaceAll('currentColor', request.color)
+    .replace(/^<svg[^>]*>/, `<svg x="${x}" y="${y}" width="${formulaWidth}" height="${(ascent + depth) * em}" viewBox="${minX} ${minY} ${maxX - minX} ${maxY - minY}">`)
   const page = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${inner}</svg>`
-  // MathJax draws its own glyphs as paths, so resvg skips the system fonts,
-  // which it would scan on every picture. Text MathJax has no glyph for comes
-  // as <text> and needs a font.
-  let font = { loadSystemFonts: false }
-  if (page.includes('<text')) {
-    const [file, family] = textFont ?? [undefined, undefined]
-    font = file
-      ? { loadSystemFonts: false, fontFiles: [file], defaultFontFamily: family, serifFamily: family, sansSerifFamily: family }
-      : { loadSystemFonts: true }
-  }
-  const png = new Resvg(page, { fitTo: { mode: 'original' }, font }).render().asPng()
+  // Fallback text was shaped above into paths, so rasterize the final page
+  // without loading fonts.
+  const png = new Resvg(page, { fitTo: { mode: 'original' }, font: { loadSystemFonts: false } }).render().asPng()
 
   const file = path.join(request.outDir, `${item.key}.png`)
   fs.writeFileSync(file, png)
