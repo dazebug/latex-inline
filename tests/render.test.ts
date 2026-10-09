@@ -326,3 +326,13 @@ test('the math section asks for Unicode math in an answer to a side question', {
   const math = sections.find(section => section.id === 'latex-inline:math')
   expect(math?.text).toContain('side question (/btw)')
 })
+
+test('the math section asks for prose without LaTeX commands, which only math is drawn from', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on)
+  on('prompt.compose', async () => ({ sections: [] }))
+  await $.session.start(SESSION)
+  const facts = { model: 'claude-opus-5-5', promptModel: 'claude-opus-5-5', surfaces: ['terminal' as const], tools: [], outputStyle: null, traits: [] }
+  const { sections } = await $.prompt.compose(facts)
+  const math = sections.find(section => section.id === 'latex-inline:math')
+  expect(math?.text).toContain('\\enquote')
+})

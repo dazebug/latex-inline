@@ -12,7 +12,7 @@ Open an issue with the bug report form, and include a screenshot when something 
 2. Start Claude Code with your clone loaded: `claude --plugin-dir .`. It reloads the hooks module when you save, and the first load writes `tsconfig.json` and the type declarations in `.claude-plugin/types/`.
 3. Run the checks before you open a pull request:
    - `claude plugin test`
-   - `node --test tests/font-metrics.test.mjs tests/render-bounds.test.mjs`
+   - `node --test tests/font-metrics.test.mjs tests/render-bounds.test.mjs tests/render-tex.test.mjs`
    - `claude plugin validate --strict .claude-plugin/plugin.json`
    - `npx -p typescript@5 tsc --noEmit`
 

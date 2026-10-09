@@ -35,11 +35,12 @@ The plugin adds a short section to Claude's system prompt, only in sessions wher
 - Display math goes between double dollars in a paragraph of its own, with blank lines before and after.
 - Math is drawn as pictures in paragraphs and list items. Math inside tables, headings and block quotes, where a picture can't go, is written as Unicode text. Math inside code spans and code blocks is left as written.
 - `\(...\)` and `\[...\]` work too. MathJax supports the AMS environments (`aligned`, `cases`, `pmatrix`, ...), and `\text{}` takes any script, including Hangul and kana.
+- Commands MathJax lacks are drawn too: `\argmax`, `\argmin`, `\E`, `\R` and the other blackboard letters, `\norm{}`, `\abs{}`, `\bm{}`, `\mathds{}`, `\1` and `\coloneqq` as usual, and any other unknown command, such as `\softplus`, as its name, the way `\operatorname` draws one.
 
 If you turn `teach_claude` off, or want Claude to write LaTeX in every session regardless of the terminal, add this to your `CLAUDE.md`:
 
 ```markdown
-- Write math in LaTeX: inline as `$...$`, display as `$$...$$` in a paragraph of its own with blank lines around it. No space right after the opening `$` or right before the closing `$`. Do not use Unicode symbols such as α, ² or ≤ in place of LaTeX. Keep formulas out of tables, headings, block quotes and code; put dollar amounts and shell variables in code spans. Move long formulas and stacked fractions to display math.
+- Write math in LaTeX: inline as `$...$`, display as `$$...$$` in a paragraph of its own with blank lines around it. No space right after the opening `$` or right before the closing `$`. Do not use Unicode symbols such as α, ² or ≤ in place of LaTeX. Keep formulas out of tables, headings, block quotes and code; put dollar amounts and shell variables in code spans. Move long formulas and stacked fractions to display math. Write the prose around math as Markdown, without LaTeX commands such as `\enquote{}`.
 ```
 
 ## Configuration
@@ -110,7 +111,7 @@ LaTeX Inline collects no data and sends nothing off your machine: it has no serv
 
 - **Runs**: where it draws pictures, `node bin/font-metrics.mjs` once at session start when `font_metrics` is `auto`, and `node bin/render.mjs` from the plugin folder once per batch of new formulas, with the formulas on its standard input. The renderer lays each formula out with MathJax and rasterizes it to PNG with [resvg](https://github.com/RazrFalcon/resvg). Nothing else is run. Both start through Claude Code's `$.process.run`, as an argument list with no shell, with the `node` that `node_path` names; the font check is stopped after 10 seconds and a render after 60. They run as a separate `node` process because Claude Code runs the hooks module itself with no Node.js APIs or WebAssembly and lets it import only its own files, so the npm packages that draw the pictures cannot load there.
 - **Writes**: the PNG pictures and a small JSON record per formula in `$XDG_CACHE_HOME/latex-inline` (`~/.cache/latex-inline` by default). Delete that folder at any time to clear the cache.
-- **Reads**: those cache files; your terminal's config file (`~/.config/ghostty/config` and its macOS and `.ghostty` variants, or `~/.config/kitty/kitty.conf`); the headers of the font files in your font folders, to find and measure the terminal font; your environment's `TERM`, `TERM_PROGRAM`, `KITTY_WINDOW_ID`, `TMUX`, `HOME`, `XDG_CACHE_HOME` and `XDG_CONFIG_HOME`; Claude Code's `theme` setting; and, only for text inside `\text{}` that the math font has no glyph for, one CJK system font.
+- **Reads**: those cache files; your terminal's config file (`~/.config/ghostty/config` and its macOS and `.ghostty` variants, or `~/.config/kitty/kitty.conf`); the headers of the font files in your font folders, to find and measure the terminal font; your environment's `TERM`, `TERM_PROGRAM`, `KITTY_WINDOW_ID`, `TMUX`, `HOME`, `XDG_CACHE_HOME` and `XDG_CONFIG_HOME`; Claude Code's `theme` setting; and, only for characters the math font has no glyph for, one CJK system font for text inside `\text{}` and one math font (STIX Two Math on macOS, Noto Sans Math on Linux) for letters such as the 𝟙 of `\mathbb{1}`.
 - **Network**: none at run time. Claude Code downloads the npm packages pinned in `package-lock.json` (`mathjax`, `@mathjax/mathjax-fira-font`, `@resvg/resvg-js`) when it installs the plugin.
 - **Sends**: nothing leaves your machine. The formulas go to the local `node` renderer on its standard input, and the pictures come back as files in the cache folder.
 - **Credentials**: none are read.
@@ -119,7 +120,7 @@ LaTeX Inline collects no data and sends nothing off your machine: it has no serv
 
 ## When a formula can't be drawn
 
-- A formula MathJax can't parse, or one that uses an unknown command, shows its LaTeX source, dimmed, in its place. The rest of the reply is still drawn.
+- A formula MathJax can't parse shows its LaTeX source, dimmed, in its place. The rest of the reply is still drawn. An unknown command alone doesn't stop a formula: it is drawn as its name.
 - If the renderer can't run at all (no `node`, missing packages), every formula shows its source dimmed, and the plugin tries again in the next session.
 - If a reply with math holds a single block of text, other than a fenced code block that starts a line, longer than 10,000 characters, the whole reply is written as Unicode text.
 - While a new formula renders, its source shows for a moment and is then replaced.
