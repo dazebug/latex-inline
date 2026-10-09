@@ -369,7 +369,9 @@ export const register: Register = (on, options) => {
         const boxes = group.map(boxOf)
         return { columns: boxes.reduce((sum, box) => sum + box.columns, 0), rows: Math.max(1, ...boxes.map(box => box.rows)) }
       })
-    const lineWidth = width ?? 78
+    // The columns a flow gets: the reply's width less the last column, which
+    // the rows below leave empty (paddingRight).
+    const lineWidth = (width ?? 78) - 1
     const first = renderBlocks[0]
     let firstRows = 1
     if (first?.kind === 'para') firstRows = firstLineRows(groupBoxes(first.tokens), lineWidth)

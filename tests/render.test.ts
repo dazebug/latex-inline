@@ -278,6 +278,18 @@ test("a list number sits on the text row of its item's first line", { options: {
   expect(itemRows.map(row => row.props.alignItems)).toEqual(['flex-start', 'flex-start'])
 })
 
+test('the first-line measure leaves out the empty last column', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true, pictureRows: 3 })
+  await $.session.start(SESSION)
+  // At 40 columns the text gets 37: two go to the gutter and the last one
+  // stays empty. Each line below is one column too wide for that, so its
+  // three-row picture wraps to the next line and the first line is one row.
+  const text = `${'a'.repeat(33)} $x$\n\n1. ${'b'.repeat(30)} $y$`
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', viewport: { columns: 40, rows: 24 }, props: { text, isFirstOfReply: true } })
+  expect((await ui.findAll({ type: 'Text', text: /⏺/ })).map(bullet => bullet.text)).toEqual(['⏺'])
+  expect((await ui.findAll({ type: 'Text', text: /^\n*\d+\. $/ })).map(number => number.text)).toEqual(['1. '])
+})
+
 test('a reply drawn here starts with the blank row Claude Code puts above a reply', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
   engine(on, { pictures: true })
   await $.session.start(SESSION)
