@@ -150,7 +150,10 @@ function measuringSvgWithClipShapes(svg) {
 // defines writes it as an operator name: \softplus(z) reads as softplus(z),
 // where failing would show the whole formula as source. Being the parser's
 // fallback, it leaves a command in \verb alone and finds one right after the
-// row break \\. A command named by a symbol, as \@, still fails.
+// row break \\. A command named by a symbol, as \@, still fails. It reaches
+// the parser through MathJax._, whose module paths can move in another
+// MathJax version: a failure here keeps MathJax from starting, and every
+// formula fails.
 function defineOperatorNames() {
   const { Configuration } = globalThis.MathJax._.input.tex.Configuration
   const TexParser = globalThis.MathJax._.input.tex.TexParser.default
