@@ -146,34 +146,43 @@ function measuringSvgWithClipShapes(svg) {
   })
 }
 
+// A TeX package whose fallback for a command TeX reads but no package
+// defines writes it as an operator name: \softplus(z) reads as softplus(z),
+// where failing would show the whole formula as source. Being the parser's
+// fallback, it leaves a command in \verb alone and finds one right after the
+// row break \\. A command named by a symbol, as \@, still fails.
+function defineOperatorNames() {
+  const { Configuration } = globalThis.MathJax._.input.tex.Configuration
+  const TexParser = globalThis.MathJax._.input.tex.TexParser.default
+  const TexError = globalThis.MathJax._.input.tex.TexError.default
+  Configuration.create('operatornames', {
+    fallback: {
+      macro: (parser, name) => {
+        if (!/^[A-Za-z]+$/.test(name)) throw new TexError('UndefinedControlSequence', 'Undefined control sequence %1', `\\${name}`)
+        parser.Push(new TexParser(`\\operatorname{${name}}`, parser.stack.env, parser.configuration).mml())
+      },
+    },
+  })
+}
+
 await MathJax.init({
   loader: { load: ['input/tex', 'output/svg'], paths: { mathjax: path.dirname(require.resolve('mathjax/package.json')) } },
-  // An error fails the formula, which the mod then shows as source; an
-  // unknown command is retried below.
-  tex: { packages: { '[-]': ['noundefined'] }, macros: MACROS, formatError: (_jax, error) => { throw error } },
+  startup: {
+    ready() {
+      defineOperatorNames()
+      globalThis.MathJax.startup.defaultReady()
+    },
+  },
+  // An error fails the formula, which the mod then shows as source.
+  tex: { packages: { '[-]': ['noundefined'], '[+]': ['operatornames'] }, macros: MACROS, formatError: (_jax, error) => { throw error } },
   // MathJax 4 splits inline math into one <svg> per breakable piece so a
   // page can wrap it; a picture is one piece.
   output: { font: `mathjax-${request.fontFamily}`, fontCache: 'local', linebreaks: { inline: false } },
 })
 const adaptor = MathJax.startup.adaptor
 
-// A formula typeset with each unknown command written as an operator name:
-// \softplus(z) reads as softplus(z), where failing would show the whole
-// formula as source.
-async function typeset(tex, display) {
-  for (let tries = 0; ; tries++) {
-    try {
-      return await MathJax.tex2svgPromise(tex, { display })
-    } catch (error) {
-      const name = /^Undefined control sequence \\([A-Za-z]+)$/.exec(String(error?.message))?.[1]
-      if (name === undefined || tries >= 20) throw error
-      tex = tex.replace(new RegExp(`(?<!\\\\)\\\\${name}(?![A-Za-z])`, 'g'), `\\operatorname{${name}}`)
-    }
-  }
-}
-
 async function render(item) {
-  const node = await typeset(item.tex, Boolean(item.display))
+  const node = await MathJax.tex2svgPromise(item.tex, { display: Boolean(item.display) })
   const sourceSvg = removeUnreferencedIds(
     adaptor.serializeXML(adaptor.firstChild(node)).replaceAll('currentColor', request.color),
   )

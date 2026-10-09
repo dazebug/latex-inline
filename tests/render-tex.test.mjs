@@ -54,6 +54,13 @@ test('an unknown command is drawn as its name, as an operator', () => {
   ])
 })
 
+test('only commands TeX reads as commands are drawn as names: one after a row break is, one in \\verb is not', () => {
+  assertDrawnAs([
+    ['\\begin{aligned}x&=1\\\\\\softplus(x)&=y\\end{aligned}', '\\begin{aligned}x&=1\\\\\\operatorname{softplus}(x)&=y\\end{aligned}'],
+    ['\\verb|\\softplus| + \\softplus(x)', '\\verb|\\softplus| + \\operatorname{softplus}(x)'],
+  ])
+})
+
 test('commands Claude writes that MathJax lacks are drawn as their usual forms', () => {
   assertDrawnAs([
     ['\\argmax_x f(x)', '\\operatorname*{arg\\,max}_x f(x)'],
