@@ -5,14 +5,16 @@ const SESSION = { cwd: '/tmp', surface: 'terminal' as const, isInteractive: true
 const REPLY = '저는 $Q \\ge 0$이 맞다고 봅니다.'
 
 // The engine beneath the plugin: no terminal variables, default settings, a
-// picture cache that holds every formula when `pictures` is set, and a message
-// drawing that shows the text it was handed, or an engine element when
-// `engineElement` is set; `observe` sees the props of each drawing.
+// picture cache that holds every formula when `pictures` is set, each picture
+// `pictureRows` rows tall, and a message drawing that shows the text it was
+// handed, or an engine element when `engineElement` is set; `observe` sees
+// the props of each drawing.
 function engine(
   on: On,
   options: {
     observe?: (props: RenderPropsOf['AssistantMessage']) => void
     pictures?: boolean
+    pictureRows?: number
     engineElement?: boolean
   } = {},
 ) {
@@ -22,7 +24,7 @@ function engine(
   on('command.register', async ($, e) => ({ value: { command: e.name } }))
   on('clock.every', async () => ({ value: undefined }))
   on('fs.exists', async () => ({ value: options.pictures === true }))
-  on('fs.read', async () => ({ value: JSON.stringify({ key: 'fixture', file: '/tmp/x.png', columns: 4, rows: 1 }) }))
+  on('fs.read', async () => ({ value: JSON.stringify({ key: 'fixture', file: '/tmp/x.png', columns: 4, rows: options.pictureRows ?? 1 }) }))
   on('ui.render', { component: 'AssistantMessage' }, async ($, e) => {
     options.observe?.(e.props)
     if (options.engineElement) return { type: 'engine', ref: 1 } as never
@@ -255,6 +257,25 @@ test('a tree from a mod below is placed as it comes, with no margin added', { op
   const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } })
   const drawn = await ui.drawn()
   expect(drawn.type === 'Box' ? drawn.children?.[1] : undefined).toMatchObject({ type: 'Text', children: [MERMAID] })
+})
+
+test("a list number sits on the text row of its item's first line", { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true, pictureRows: 3 })
+  await $.session.start(SESSION)
+  // Item 1 has a three-row picture on its first line; item 2 wraps, and its
+  // first line holds only words.
+  const text = [
+    '1. 첫 줄에 $x$ 가 있습니다.',
+    '2. 이 항목은 첫 줄을 글자로만 채우고 다음 줄로 넘어간 뒤에야 식이 나오므로 번호는 첫 줄의 글자 옆에 있어야 합니다 $y$ 끝.',
+  ].join('\n')
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', viewport: { columns: 40, rows: 24 }, props: { text, isFirstOfReply: true } })
+  const numbers = await ui.findAll({ type: 'Text', text: /^\n*\d+\. $/ })
+  expect(numbers.map(number => number.text)).toEqual(['\n1. ', '2. '])
+  const itemRows = (await ui.findAll({ type: 'Box' })).filter(box => {
+    const head = box.children[0] as { type?: string; children?: unknown[] } | undefined
+    return head?.type === 'Text' && /^\n*\d+\. $/.test((head.children ?? []).join(''))
+  })
+  expect(itemRows.map(row => row.props.alignItems)).toEqual(['flex-start', 'flex-start'])
 })
 
 test('a reply drawn here starts with the blank row Claude Code puts above a reply', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
