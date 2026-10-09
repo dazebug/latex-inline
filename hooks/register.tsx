@@ -5,7 +5,7 @@ import { cellWidth, inkFor, mathStyle, type Ink, type MathStyle } from './suppor
 import { unicodeMath } from './unicode'
 
 // Part of every cache key: bump it when bin/render.mjs draws differently.
-const VERSION = 9
+const VERSION = 10
 // Pixels per terminal row in the pictures; the terminal scales each picture
 // to its cells, so this only sets how sharp they are.
 const ROW_PX = 64
@@ -21,6 +21,7 @@ const MATH_INSTRUCTION = [
   'Put no space right after the opening $ or right before the closing $. Do not write Unicode symbols such as α, ² or ≤ in place of LaTeX.',
   'Math inside tables, headings and block quotes is written as Unicode text instead of drawn, and math in code spans and code blocks is left as written: keep formulas in paragraphs and list items where you can, and put dollar amounts and shell variables in code spans so they are not read as math.',
   'Move long formulas and stacked fractions to display math. AMS environments such as aligned, cases and pmatrix work, and \\text{} takes any script.',
+  'Only math is drawn from LaTeX: write the prose around it as Markdown, without LaTeX commands such as \\enquote{}, \\textbf{} or \\emph{}, which would show as written.',
   'Except in a side question (/btw): when a message says it is a side question from the user, your answer is shown where the plugin cannot draw, so write its math as Unicode text, such as α, x² or ≤, and no $ or LaTeX commands.',
 ].join('\n')
 

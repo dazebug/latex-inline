@@ -32,6 +32,31 @@ const TEXT_FONTS = [
   ['/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc', 'Noto Sans CJK KR'],
 ]
 const textFont = TEXT_FONTS.find(([file]) => fs.existsSync(file))
+// A font for math letters the MathJax font has no glyph for, such as the 𝟙
+// of \mathbb{1}, which would otherwise come out as a missing-glyph box: the
+// first one this machine has, used where the text font lacks a glyph.
+const MATH_FONTS = ['/System/Library/Fonts/Supplemental/STIXTwoMath.otf', '/usr/share/fonts/truetype/noto/NotoSansMath-Regular.ttf']
+const mathFont = MATH_FONTS.find(file => fs.existsSync(file))
+
+// Commands Claude writes that MathJax lacks, and that would read wrong as
+// the operator names unknown commands are drawn as.
+const MACROS = {
+  argmax: '\\operatorname*{arg\\,max}',
+  argmin: '\\operatorname*{arg\\,min}',
+  E: '\\mathbb{E}',
+  R: '\\mathbb{R}',
+  N: '\\mathbb{N}',
+  Z: '\\mathbb{Z}',
+  Q: '\\mathbb{Q}',
+  C: '\\mathbb{C}',
+  1: '\\mathbb{1}',
+  bm: ['\\boldsymbol{#1}', 1],
+  mathds: ['\\mathbb{#1}', 1],
+  norm: ['\\left\\lVert #1 \\right\\rVert', 1],
+  abs: ['\\left\\lvert #1 \\right\\rvert', 1],
+  coloneqq: '\\mathrel{:=}',
+  eqqcolon: '\\mathrel{=:}',
+}
 
 const request = JSON.parse(fs.readFileSync(0, 'utf8'))
 
@@ -121,10 +146,38 @@ function measuringSvgWithClipShapes(svg) {
   })
 }
 
+// A TeX package whose fallback for a command TeX reads but no package
+// defines writes it as an operator name: \softplus(z) reads as softplus(z),
+// where failing would show the whole formula as source. Being the parser's
+// fallback, it leaves a command in \verb alone and finds one right after the
+// row break \\. A command named by a symbol, as \@, still fails. It reaches
+// the parser through MathJax._, whose module paths can move in another
+// MathJax version: a failure here keeps MathJax from starting, and every
+// formula fails.
+function defineOperatorNames() {
+  const { Configuration } = globalThis.MathJax._.input.tex.Configuration
+  const TexParser = globalThis.MathJax._.input.tex.TexParser.default
+  const TexError = globalThis.MathJax._.input.tex.TexError.default
+  Configuration.create('operatornames', {
+    fallback: {
+      macro: (parser, name) => {
+        if (!/^[A-Za-z]+$/.test(name)) throw new TexError('UndefinedControlSequence', 'Undefined control sequence %1', `\\${name}`)
+        parser.Push(new TexParser(`\\operatorname{${name}}`, parser.stack.env, parser.configuration).mml())
+      },
+    },
+  })
+}
+
 await MathJax.init({
   loader: { load: ['input/tex', 'output/svg'], paths: { mathjax: path.dirname(require.resolve('mathjax/package.json')) } },
-  // An unknown command fails the formula, which the mod then shows as source.
-  tex: { packages: { '[-]': ['noundefined'] }, formatError: (_jax, error) => { throw error } },
+  startup: {
+    ready() {
+      defineOperatorNames()
+      globalThis.MathJax.startup.defaultReady()
+    },
+  },
+  // An error fails the formula, which the mod then shows as source.
+  tex: { packages: { '[-]': ['noundefined'], '[+]': ['operatornames'] }, macros: MACROS, formatError: (_jax, error) => { throw error } },
   // MathJax 4 splits inline math into one <svg> per breakable piece so a
   // page can wrap it; a picture is one piece.
   output: { font: `mathjax-${request.fontFamily}`, fontCache: 'local', linebreaks: { inline: false } },
@@ -149,7 +202,7 @@ async function render(item) {
   if (hasText) {
     const [file, family] = textFont ?? [undefined, undefined]
     font = file
-      ? { loadSystemFonts: false, fontFiles: [file], defaultFontFamily: family, serifFamily: family, sansSerifFamily: family }
+      ? { loadSystemFonts: false, fontFiles: [file, mathFont].filter(Boolean), defaultFontFamily: family, serifFamily: family, sansSerifFamily: family }
       : { loadSystemFonts: true }
   }
 
