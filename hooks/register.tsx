@@ -115,7 +115,8 @@ function isPicture(entry: Entry | undefined): entry is Picture {
 }
 
 // How many rows the first wrapped line of a flow takes, found by laying the
-// tokens out the way flex wrap does; the reply's bullet goes on its text row.
+// tokens out the way flex wrap does; the reply's bullet and a list item's
+// number go on its text row.
 function firstLineRows(boxes: { columns: number; rows: number }[], width: number): number {
   let used = 0
   let rows = 1
@@ -125,6 +126,12 @@ function firstLineRows(boxes: { columns: number; rows: number }[], width: number
     rows = Math.max(rows, box.rows)
   }
   return rows
+}
+
+// Moves a mark drawn at the top of a line `rows` tall down to its text row,
+// the middle one, where a picture keeps its baseline.
+function onTextRow(mark: string, rows: number): string {
+  return `${'\n'.repeat(Math.floor((rows - 1) / 2))}${mark}`
 }
 
 // Finds a formula's picture in memory or in the on-disk cache, and queues it
@@ -362,7 +369,9 @@ export const register: Register = (on, options) => {
         const boxes = group.map(boxOf)
         return { columns: boxes.reduce((sum, box) => sum + box.columns, 0), rows: Math.max(1, ...boxes.map(box => box.rows)) }
       })
-    const lineWidth = width ?? 78
+    // The columns a flow gets: the reply's width less the last column, which
+    // the rows below leave empty (paddingRight).
+    const lineWidth = (width ?? 78) - 1
     const first = renderBlocks[0]
     let firstRows = 1
     if (first?.kind === 'para') firstRows = firstLineRows(groupBoxes(first.tokens), lineWidth)
@@ -374,7 +383,7 @@ export const register: Register = (on, options) => {
       const entry = pictures.get(keyOf({ tex: first.tex, display: true }))
       firstRows = isPicture(entry) ? entry.rows : 1
     }
-    const bullet = `${'\n'.repeat(Math.floor((firstRows - 1) / 2))}⏺`
+    const bullet = onTextRow('⏺', firstRows)
 
     // Replacing the drawing drops the engine's gutter, so the rows drawn here
     // carry the reply's bullet (first block only) and its two-column indent.
@@ -445,11 +454,14 @@ export const register: Register = (on, options) => {
           </Box>
         )
       } else {
+        // Draw the number at the top of its item and move it down to the
+        // first line's text row: centered against the whole item, it would
+        // drift into the middle of an item that wraps onto several lines.
         content = (
           <Box flexDirection="column">
             {block.items.map(item => (
-              <Box flexDirection="row" alignItems="center">
-                <Text>{item.prefix}</Text>
+              <Box flexDirection="row" alignItems="flex-start">
+                <Text>{onTextRow(item.prefix, firstLineRows(groupBoxes(item.tokens), lineWidth - cellWidth(item.prefix)))}</Text>
                 {flow(item.tokens)}
               </Box>
             ))}
