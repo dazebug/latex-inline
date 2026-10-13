@@ -526,3 +526,21 @@ test('a mouse copy gets its LaTeX on either side of a diagram an outer mod split
     expect(state.clipboard).toBe(latex)
   }
 })
+
+test('two portions of a split reply are both kept when the second starts with the whole first', { plugins: [OUTER_MERMAID], options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true, clock: false })
+  const clock = mock.clock(on)
+  const state = desk(on)
+  await $.session.start(SESSION)
+  // Read alone, the second portion looks like the first grown as the reply
+  // streams in.
+  const before = 'The formula $a$ is useful here and has enough prose to locate this sentence precisely.'
+  const after = `${before} Another formula $b$ follows afterward.`
+  await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', requestId: 'reply-1', props: { text: `${before}\n\n${MERMAID}\n\n${after}`, isFirstOfReply: true } })
+  const line = `The formula ${cells(0, 4)} is useful here and has enough prose to locate this sentence precisely.`
+  const selected = [line, '', '  diagram', '', `  ${line} Another formula ${cells(0, 4)} follows afterward.`].join('\n')
+  state.selected = { text: selected, requestId: 'reply-1' }
+  state.clipboard = selected
+  for (let k = 0; k < 3; k++) await clock.advance(200)
+  expect(state.clipboard).toBe([before, '', 'diagram', '', after].join('\n'))
+})

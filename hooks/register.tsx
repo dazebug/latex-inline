@@ -219,36 +219,34 @@ async function readClipboard($: EngineInterface): Promise<string | undefined> {
 type Portion = { text: string; width: number | undefined; isFirstOfReply: boolean }
 
 // The replies drawn here with pictures, by the id a selection names its row
-// by, so a copy of one can be read back as the reply: the latest 200, each in
-// the portions drawn of it. A mod above may split a reply around a diagram
-// and hand each side on under the reply's id.
+// by, so a copy of one can be read back as the reply: the latest 100, each as
+// the texts drawn under its id, the one drawn last at the end.
+//
+// Keep every text drawn, not only the last: a mod above may split a reply
+// around a diagram and hand each side on under the reply's id. Do not take a
+// text another one starts with for an earlier state of it: nothing in a render
+// tells a portion that starts with the one before it from that one grown as
+// the reply streams in.
 const drawnReplies = new Map<string, Portion[]>()
 
-// Keep every portion: one drawn again, or grown as the reply streams in,
-// takes its old place, and another goes after those drawn before it.
 function keepDrawn(requestId: string, portion: Portion): void {
-  const portions = drawnReplies.get(requestId) ?? []
-  const at = portions.findIndex(old => portion.text.startsWith(old.text) || old.text.startsWith(portion.text))
-  if (at >= 0) portions[at] = portion
-  else portions.push(portion)
-  if (portions.length > 8) portions.shift()
+  const portions = (drawnReplies.get(requestId) ?? []).filter(old => old.text !== portion.text)
+  portions.push(portion)
+  if (portions.length > 16) portions.shift()
   drawnReplies.delete(requestId)
   drawnReplies.set(requestId, portions)
   const oldest = drawnReplies.keys().next().value
-  if (drawnReplies.size > 200 && oldest !== undefined) drawnReplies.delete(oldest)
+  if (drawnReplies.size > 100 && oldest !== undefined) drawnReplies.delete(oldest)
 }
 
-// The selection's text with its pictures back as LaTeX, or null when it is
-// not one reply drawn here or does not read as it.
-function latexOf(selected: Selected): string | null {
-  const portions = selected.requestId === undefined ? undefined : drawnReplies.get(selected.requestId)
-  if (portions === undefined) return null
+// The selection read as the reply's portions, in the order drawn. The flows
+// of each portion are numbered past the last portion's, so the lines of two
+// portions are never joined as one paragraph.
+function readAs(text: string, portions: Portion[]): string | null {
   const sizeOf = (job: Job) => {
     const entry = entries.get(keyOf(job))
     return isPicture(entry) ? entry : undefined
   }
-  // Number the flows of each portion past the last portion's, so the lines
-  // of two portions are never joined as one paragraph.
   const shown: Shown[] = []
   let flows = 0
   for (const portion of portions) {
@@ -262,7 +260,18 @@ function latexOf(selected: Selected): string | null {
       }
     }
   }
-  return copyAsLatex(selected.text, shown)
+  return copyAsLatex(text, shown)
+}
+
+// The selection's text with its pictures back as LaTeX, or null when it is
+// not one reply drawn here or does not read as it. It is read first as the
+// texts no other text starts with, the reply as it stands once streamed in,
+// and when that fails as every text kept.
+function latexOf(selected: Selected): string | null {
+  const portions = selected.requestId === undefined ? undefined : drawnReplies.get(selected.requestId)
+  if (portions === undefined) return null
+  const latest = portions.filter(portion => !portions.some(other => other !== portion && other.text.startsWith(portion.text)))
+  return readAs(selected.text, latest) ?? (latest.length < portions.length ? readAs(selected.text, portions) : null)
 }
 
 // Replies converted for the text style, by width and text: every redraw
