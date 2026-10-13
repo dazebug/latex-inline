@@ -43,6 +43,14 @@ If you turn `teach_claude` off, or want Claude to write LaTeX in every session r
 - Write math in LaTeX: inline as `$...$`, display as `$$...$$` in a paragraph of its own with blank lines around it. No space right after the opening `$` or right before the closing `$`. Do not use Unicode symbols such as α, ² or ≤ in place of LaTeX. Keep formulas out of tables, headings, block quotes and code; put dollar amounts and shell variables in code spans. Move long formulas and stacked fractions to display math. Write the prose around math as Markdown, without LaTeX commands such as `\enquote{}`.
 ```
 
+## Copying math
+
+In fullscreen mode (`"tui": "fullscreen"` in your settings), select part of a reply with the mouse and the copy holds each formula drawn as a picture as its LaTeX: `$...$` for inline math, `$$...$$` for display math. A paragraph the plugin wrapped onto several lines is copied as one line, as Claude Code copies the paragraphs it draws itself. A toast, "Copied with the formulas as LaTeX", says when it has happened.
+
+Claude Code makes that copy itself, from the characters on screen, and the cells of a picture hold placeholder characters, not the formula; no plugin can change the copy as it is made. So the plugin follows the selection, and once the clipboard holds exactly the text Claude Code copied from it, puts the same text on the clipboard with LaTeX in place of the pictures. To see that, it reads the clipboard every 200 ms for three seconds after the selection stops changing, then every second until a minute has passed. Anything else on the clipboard, such as what another program copied in the meantime, is left as it is. Set `copy_latex` to `false` to leave every copy as Claude Code makes it.
+
+This works for a selection inside one reply. A selection that spans several messages, and one your terminal makes itself (outside fullscreen mode, or the native selection you make by holding a modifier key), still copies the placeholders. `/copy` copies a whole reply with its LaTeX as Claude wrote it.
+
 ## Configuration
 
 Set options with `/plugin configure latex-inline@latex-inline` or in the `/config` panel. The values are yours alone: they are kept in your own settings, under `pluginConfigs`.
@@ -51,6 +59,7 @@ Set options with `/plugin configure latex-inline@latex-inline` or in the `/confi
 | :- | :- | :- |
 | `mode` | `auto` | `auto` draws pictures in Ghostty, cmux and kitty outside tmux, and writes Unicode text in other terminals. `on` always draws pictures, `text` always writes Unicode text, `off` leaves the LaTeX as written. |
 | `teach_claude` | `true` | Adds the math-writing section to the system prompt where the plugin draws pictures. |
+| `copy_latex` | `true` | Puts the formulas of a mouse copy on the clipboard as LaTeX, in fullscreen mode where the plugin draws pictures (see [Copying math](#copying-math)). |
 | `node_path` | `node` | The Node.js executable that runs the renderer. |
 | `font_metrics` | `auto` | `auto` measures your terminal font at session start (below). `manual` always uses the next three options. |
 | `cell_aspect` | `2.125` | Your terminal cell's height divided by its width, in pixels. |
@@ -105,17 +114,17 @@ The result is an approximation: tall structures such as matrices, `cases` and mu
 
 ## Privacy
 
-LaTeX Inline collects no data and sends nothing off your machine: it has no server and makes no network requests. Formulas are rendered by a local `node` process and kept as pictures in your cache folder. Everything it runs, reads and writes is listed below.
+LaTeX Inline collects no data and sends nothing off your machine: it has no server and makes no network requests. Formulas are rendered by a local `node` process and kept as pictures in your cache folder. It reads the clipboard only to compare it with a selection you made, and keeps none of it. Everything it runs, reads and writes is listed below.
 
 ## What it runs, reads and writes
 
-- **Runs**: where it draws pictures, `node bin/font-metrics.mjs` once at session start when `font_metrics` is `auto`, and `node bin/render.mjs` from the plugin folder once per batch of new formulas, with the formulas on its standard input. The renderer lays each formula out with MathJax and rasterizes it to PNG with [resvg](https://github.com/RazrFalcon/resvg). Nothing else is run. Both start through Claude Code's `$.process.run`, as an argument list with no shell, with the `node` that `node_path` names; the font check is stopped after 10 seconds and a render after 60. They run as a separate `node` process because Claude Code runs the hooks module itself with no Node.js APIs or WebAssembly and lets it import only its own files, so the npm packages that draw the pictures cannot load there.
-- **Writes**: the PNG pictures and a small JSON record per formula in `$XDG_CACHE_HOME/latex-inline` (`~/.cache/latex-inline` by default). Delete that folder at any time to clear the cache.
-- **Reads**: those cache files; your terminal's config file (`~/.config/ghostty/config` and its macOS and `.ghostty` variants, or `~/.config/kitty/kitty.conf`); the headers of the font files in your font folders, to find and measure the terminal font; your environment's `TERM`, `TERM_PROGRAM`, `KITTY_WINDOW_ID`, `TMUX`, `HOME`, `XDG_CACHE_HOME` and `XDG_CONFIG_HOME`; Claude Code's `theme` setting; and, only for characters the math font has no glyph for, one CJK system font for text inside `\text{}` and one math font (STIX Two Math on macOS, Noto Sans Math on Linux) for letters such as the 𝟙 of `\mathbb{1}`.
+- **Runs**: where it draws pictures, `node bin/font-metrics.mjs` once at session start when `font_metrics` is `auto`, and `node bin/render.mjs` from the plugin folder once per batch of new formulas, with the formulas on its standard input. The renderer lays each formula out with MathJax and rasterizes it to PNG with [resvg](https://github.com/RazrFalcon/resvg). Both start through Claude Code's `$.process.run`, as an argument list with no shell, with the `node` that `node_path` names; the font check is stopped after 10 seconds and a render after 60. Unless `copy_latex` is off, after you select part of a reply drawn with pictures it also runs `pbpaste` (on Linux the first of `wl-paste`, `xclip` and `xsel` that runs) to read the clipboard, as [Copying math](#copying-math) describes, stopped after 2 seconds. Nothing else is run. They run as a separate `node` process because Claude Code runs the hooks module itself with no Node.js APIs or WebAssembly and lets it import only its own files, so the npm packages that draw the pictures cannot load there.
+- **Writes**: the PNG pictures and a small JSON record per formula in `$XDG_CACHE_HOME/latex-inline` (`~/.cache/latex-inline` by default). Delete that folder at any time to clear the cache. Through Claude Code's `$.ui.copy`, the clipboard: a selection's text with its formulas as LaTeX, in place of the copy Claude Code has just made of that selection.
+- **Reads**: those cache files; your terminal's config file (`~/.config/ghostty/config` and its macOS and `.ghostty` variants, or `~/.config/kitty/kitty.conf`); the headers of the font files in your font folders, to find and measure the terminal font; your environment's `TERM`, `TERM_PROGRAM`, `KITTY_WINDOW_ID`, `TMUX`, `HOME`, `XDG_CACHE_HOME` and `XDG_CONFIG_HOME`; Claude Code's `theme` setting; what you select with the mouse, through Claude Code's `$.ui.selection`, and the clipboard, while a selection of a reply drawn with pictures stands, for up to a minute; and, only for characters the math font has no glyph for, one CJK system font for text inside `\text{}` and one math font (STIX Two Math on macOS, Noto Sans Math on Linux) for letters such as the 𝟙 of `\mathbb{1}`.
 - **Network**: none at run time. Claude Code downloads the npm packages pinned in `package-lock.json` (`mathjax`, `@mathjax/mathjax-fira-font`, `@resvg/resvg-js`) when it installs the plugin.
 - **Sends**: nothing leaves your machine. The formulas go to the local `node` renderer on its standard input, and the pictures come back as files in the cache folder.
 - **Credentials**: none are read.
-- **Hooks**: `session.start` works out how this terminal shows math, measures the font for pictures and registers `/latex-inline`; `command.run` answers `/latex-inline`; `prompt.compose` adds the math-writing section described above; `ui.render`, on assistant messages only, draws the math and the prose itself and passes only the fenced code blocks that start a line on to the next hook, so mods such as Mermaid Inline can draw them; indented fences stay with the prose. A reply with no math to draw, and every reply where it writes Unicode text, goes on whole, with its math written as Unicode text. It leaves the stored message as it was.
+- **Hooks**: `session.start` works out how this terminal shows math, measures the font for pictures, registers `/latex-inline` and, where it draws pictures, starts a 200 ms timer that renders new formulas and follows the mouse selection; `command.run` answers `/latex-inline`; `prompt.compose` adds the math-writing section described above; `ui.render`, on assistant messages only, draws the math and the prose itself and passes only the fenced code blocks that start a line on to the next hook, so mods such as Mermaid Inline can draw them; indented fences stay with the prose. A reply with no math to draw, and every reply where it writes Unicode text, goes on whole, with its math written as Unicode text. It leaves the stored message as it was.
 - **Changes to Claude**: the math-writing section in the system prompt described above, only where the plugin draws pictures, and the `/latex-inline` command. The Unicode text is computed in the plugin itself and runs nothing.
 
 ## When a formula can't be drawn
@@ -127,7 +136,7 @@ LaTeX Inline collects no data and sends nothing off your machine: it has no serv
 
 ## Limitations
 
-- Copying a reply out of the terminal copies the picture placeholders or the Unicode text, not the LaTeX.
+- A selection that spans several messages, or one your terminal makes itself, copies the picture placeholders, not the LaTeX (see [Copying math](#copying-math)). Math written as Unicode text copies as that text.
 - Claude's thinking, shown with ctrl+o, keeps its LaTeX as written: Claude Code gives mods no way to redraw it.
 - An answer to a side question (`/btw`) is not drawn either, for the same reason; where the plugin draws pictures it asks Claude to write the math there as Unicode text.
 - Inline code, bold text and links in a paragraph that holds math are drawn by the plugin, close to but not exactly like Claude Code's own drawing.

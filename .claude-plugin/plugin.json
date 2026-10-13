@@ -1,7 +1,7 @@
 {
   "name": "latex-inline",
   "displayName": "LaTeX Inline",
-  "version": "0.3.8",
+  "version": "0.4.0",
   "description": "Shows the LaTeX math in Claude's replies typeset: as pictures inline with the text in Ghostty, cmux and kitty, and as Unicode text in other terminals",
   "author": {
     "name": "dazebug",
@@ -33,6 +33,12 @@
       "type": "boolean",
       "title": "Tell Claude to write math in LaTeX",
       "description": "Adds a short section to the system prompt, only where math is drawn as pictures, asking Claude to write formulas as $...$ and $$...$$.",
+      "default": true
+    },
+    "copy_latex": {
+      "type": "boolean",
+      "title": "Copy formulas as LaTeX",
+      "description": "When you select part of a reply with the mouse in fullscreen mode, the copy Claude Code makes gets each formula drawn as a picture as its LaTeX ($...$, $$...$$) in place of the picture's placeholder characters. To tell that copy from one another program made, the plugin reads the clipboard with pbpaste (wl-paste, xclip or xsel on Linux) for up to a minute after such a selection.",
       "default": true
     },
     "node_path": {

@@ -1,5 +1,6 @@
 import type { EngineInterface, Register, RenderElement } from 'claude-code'
 
+import { copyAsLatex, copyWatcher, shownOf, type Selected } from './copy'
 import { glueTokens, parseBlocks, splitMarkdown, splitMarkdownRuns, type Block, type Token } from './parse'
 import { cellWidth, inkFor, mathStyle, type Ink, type MathStyle } from './support'
 import { unicodeMath } from './unicode'
@@ -54,7 +55,7 @@ let style = {
   displayScale: 2.18,
   fontFamily: 'fira',
 }
-let config = { node: 'node', cacheDir: '', style: 'off' as MathStyle, teach: true, ink: inkFor(undefined, 'auto') as Ink }
+let config = { node: 'node', cacheDir: '', style: 'off' as MathStyle, teach: true, copyLatex: true, ink: inkFor(undefined, 'auto') as Ink }
 // What bin/font-metrics.mjs made of the terminal's font, for /latex-inline.
 let fontReport = 'not looked up'
 
@@ -186,6 +187,58 @@ async function drain($: EngineInterface): Promise<void> {
   $.ui.invalidate('ui.render')
 }
 
+// The commands that print the clipboard, tried in turn: macOS's, then
+// Wayland's and X11's. The first that runs is kept; when none of them can
+// start, the clipboard is not read again this session.
+const CLIPBOARD_READERS: readonly (readonly string[])[] = [
+  ['pbpaste'],
+  ['wl-paste', '--no-newline'],
+  ['xclip', '-selection', 'clipboard', '-o'],
+  ['xsel', '--clipboard', '--output'],
+]
+let clipboardReader: readonly string[] | null | undefined
+
+async function readClipboard($: EngineInterface): Promise<string | undefined> {
+  if (clipboardReader === null) return undefined
+  let hasStarted = false
+  for (const argv of clipboardReader ? [clipboardReader] : CLIPBOARD_READERS) {
+    try {
+      const { exitCode, stdout } = await $.process.run(argv, { timeoutMs: 2_000 })
+      hasStarted = true
+      if (exitCode !== 0) continue
+      clipboardReader = argv
+      return stdout
+    } catch {
+      // Not on this machine: try the next.
+    }
+  }
+  if (!hasStarted) clipboardReader = null
+  return undefined
+}
+
+// The replies drawn here with pictures, by the id a selection names its row
+// by, so a copy of one can be read back as the reply. The latest 200.
+const drawnReplies = new Map<string, { text: string; width: number | undefined; isFirstOfReply: boolean }>()
+
+function keepDrawn(requestId: string, reply: { text: string; width: number | undefined; isFirstOfReply: boolean }): void {
+  drawnReplies.delete(requestId)
+  drawnReplies.set(requestId, reply)
+  const oldest = drawnReplies.keys().next().value
+  if (drawnReplies.size > 200 && oldest !== undefined) drawnReplies.delete(oldest)
+}
+
+// The selection's text with its pictures back as LaTeX, or null when it is
+// not one reply drawn here or does not read as it.
+function latexOf(selected: Selected): string | null {
+  const reply = selected.requestId === undefined ? undefined : drawnReplies.get(selected.requestId)
+  if (reply === undefined) return null
+  const sizeOf = (job: Job) => {
+    const entry = entries.get(keyOf(job))
+    return isPicture(entry) ? entry : undefined
+  }
+  return copyAsLatex(selected.text, shownOf(parseBlocks(reply.text), sizeOf, reply.width, reply.isFirstOfReply))
+}
+
 // Replies converted for the text style, by width and text: every redraw
 // draws a reply again.
 const converted = new Map<string, string>()
@@ -226,6 +279,7 @@ export const register: Register = (on, options) => {
       cacheDir: `${cacheHome}/latex-inline/v${VERSION}`,
       style: mathStyle(env, stringOption(options, 'mode', 'auto')),
       teach: options.teach_claude !== false,
+      copyLatex: options.copy_latex !== false,
       ink: inkFor(typeof settings.theme === 'string' ? settings.theme : undefined, stringOption(options, 'color', 'auto')),
     }
     fontReport = 'set by hand (font_metrics is manual)'
@@ -236,8 +290,24 @@ export const register: Register = (on, options) => {
       else fontReport = 'no font rules for this terminal; using the settings'
     }
     if (config.style === 'pictures') {
+      const watchCopy = config.copyLatex
+        ? copyWatcher({
+            selection: () => $.ui.selection(),
+            readClipboard: () => readClipboard($),
+            write: async text => {
+              const { isCopied } = await $.ui.copy({ text, surface: 'terminal' })
+              if (isCopied) $.ui.toast('Copied with the formulas as LaTeX')
+              return isCopied
+            },
+            rewrite: latexOf,
+            now: () => $.clock.now(),
+          })
+        : undefined
       $.clock.every(200, () => {
         void drain($)
+        // A selection or clipboard that cannot be read leaves the copy as
+        // Claude Code made it.
+        if (watchCopy) void watchCopy().catch(() => undefined)
       })
     }
     await $.command.register({
@@ -257,8 +327,14 @@ export const register: Register = (on, options) => {
       const why = stringOption(options, 'mode', 'auto') === 'text' ? 'mode is text' : 'this terminal shows no kitty-graphics pictures'
       return { text: `Math: written as Unicode text (${why})` }
     }
+    const copying = !config.copyLatex
+      ? 'as picture placeholders (copy_latex is off)'
+      : clipboardReader === null
+        ? 'as picture placeholders (no pbpaste, wl-paste, xclip or xsel to read the clipboard with)'
+        : 'with the formulas as LaTeX, for a selection in fullscreen mode'
     const lines = [
       'Math: drawn as pictures',
+      `Copying: ${copying}`,
       `Terminal font: ${fontReport}`,
       `Cell: height/width ${style.cellRatio.toFixed(3)}, baseline at ${style.baseline.toFixed(3)} of the height, ${style.lineEm.toFixed(3)} em tall`,
       `Sizes: inline ${style.mathScale} em, display ${style.displayScale} em`,
@@ -332,6 +408,7 @@ export const register: Register = (on, options) => {
       return block.items.every(item => (item.blocks ?? []).every(child => cut(child, columns === undefined ? undefined : columns - cellWidth(item.prefix))))
     }
     if (!blocks.every(block => block.kind === 'markdown' || cut(block, width))) return asUnicode()
+    keepDrawn(e.requestId, { text: e.props.text, width, isFirstOfReply: e.props.isFirstOfReply })
 
     const pictures = new Map<string, Entry | undefined>()
     const jobs: Job[] = []

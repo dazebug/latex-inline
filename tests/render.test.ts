@@ -1,5 +1,7 @@
 import type { On, RenderPropsOf } from 'claude-code'
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
+
+import { DIACRITICS } from '../hooks/copy'
 
 const SESSION = { cwd: '/tmp', surface: 'terminal' as const, isInteractive: true }
 const REPLY = '저는 $Q \\ge 0$이 맞다고 봅니다.'
@@ -16,13 +18,14 @@ function engine(
     pictures?: boolean
     pictureRows?: number
     engineElement?: boolean
+    clock?: false
   } = {},
 ) {
   on('session.start', async ($, e) => ({ cwd: e.cwd }))
   on('env.get', async () => ({ value: undefined }))
   on('settings.read', async () => ({ value: {} }))
   on('command.register', async ($, e) => ({ value: { command: e.name } }))
-  on('clock.every', async () => ({ value: undefined }))
+  if (options.clock !== false) on('clock.every', async () => ({ value: undefined }))
   on('fs.exists', async () => ({ value: options.pictures === true }))
   on('fs.read', async () => ({ value: JSON.stringify({ key: 'fixture', file: '/tmp/x.png', columns: 4, rows: options.pictureRows ?? 1 }) }))
   on('ui.render', { component: 'AssistantMessage' }, async ($, e) => {
@@ -455,4 +458,53 @@ test('an item that starts with a list has its number on a row of its own, as Cla
   expect(walk(itemRow(tree, '1. ')).some(element => element.type === 'Image')).toBe(false)
   expect(itemRow(tree, '- ')?.props?.marginLeft).toBe(3)
   expect((await ui.findAll({ type: 'Text', text: /^\n*(\d+\.|-) $|⏺/ })).map(mark => mark.text)).toEqual(['⏺', '1. ', '\n- ', '2. '])
+})
+
+// The mouse and the clipboard beneath the plugin: what is selected, what the
+// clipboard holds (as `pbpaste` prints it), and every copy the plugin makes.
+function desk(on: On) {
+  const state = { selected: undefined as { text: string; requestId?: string } | undefined, clipboard: '', reads: 0, copied: [] as string[] }
+  on('ui.selection', async () => ({ value: state.selected }))
+  on('process.run', async ($, e) => {
+    if (e.argv[0] !== 'pbpaste') return { deny: 'not on this machine' }
+    state.reads++
+    return { value: { exitCode: 0, stdout: state.clipboard, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  on('ui.copy', async ($, e) => {
+    if (e.surface !== 'terminal') return { deny: 'the selection was made on the terminal' }
+    state.copied.push(e.text)
+    state.clipboard = e.text
+    return { value: { isCopied: true as const } }
+  })
+  return state
+}
+
+// One row of a picture's cells, as a selection reads them.
+const cells = (row: number, columns: number) =>
+  Array.from({ length: columns }, (_, column) => String.fromCodePoint(0x10eeee, DIACRITICS[row] ?? 0, DIACRITICS[column] ?? 0)).join('')
+
+test('a mouse copy of a reply with pictures gets its formulas as LaTeX', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true, clock: false })
+  const clock = mock.clock(on)
+  const state = desk(on)
+  await $.session.start(SESSION)
+  await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', requestId: 'reply-1', props: { text: '넓이 $A$는 크다.', isFirstOfReply: true } })
+  const selected = `넓이 ${cells(0, 4)}는 크다.`
+  state.selected = { text: selected, requestId: 'reply-1' }
+  state.clipboard = selected
+  for (let k = 0; k < 3; k++) await clock.advance(200)
+  expect(state.copied).toEqual(['넓이 $A$는 크다.'])
+})
+
+test('with copy_latex off the clipboard is never read', { options: { mode: 'on', font_metrics: 'manual', copy_latex: false } }, async ($, on) => {
+  engine(on, { pictures: true, clock: false })
+  const clock = mock.clock(on)
+  const state = desk(on)
+  await $.session.start(SESSION)
+  await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', requestId: 'reply-1', props: { text: '넓이 $A$는 크다.', isFirstOfReply: true } })
+  state.selected = { text: `넓이 ${cells(0, 4)}는 크다.`, requestId: 'reply-1' }
+  state.clipboard = state.selected.text
+  for (let k = 0; k < 3; k++) await clock.advance(200)
+  expect(state.reads).toBe(0)
+  expect(state.copied).toEqual([])
 })
