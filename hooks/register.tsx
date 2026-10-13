@@ -1,6 +1,6 @@
 import type { EngineInterface, Register, RenderElement } from 'claude-code'
 
-import { copyAsLatex, copyWatcher, shownOf, type Selected } from './copy'
+import { copyAsLatex, copyWatcher, shownOf, type Selected, type Shown } from './copy'
 import { glueTokens, parseBlocks, splitMarkdown, splitMarkdownRuns, type Block, type Token } from './parse'
 import { cellWidth, inkFor, mathStyle, type Ink, type MathStyle } from './support'
 import { unicodeMath } from './unicode'
@@ -216,13 +216,24 @@ async function readClipboard($: EngineInterface): Promise<string | undefined> {
   return undefined
 }
 
-// The replies drawn here with pictures, by the id a selection names its row
-// by, so a copy of one can be read back as the reply. The latest 200.
-const drawnReplies = new Map<string, { text: string; width: number | undefined; isFirstOfReply: boolean }>()
+type Portion = { text: string; width: number | undefined; isFirstOfReply: boolean }
 
-function keepDrawn(requestId: string, reply: { text: string; width: number | undefined; isFirstOfReply: boolean }): void {
+// The replies drawn here with pictures, by the id a selection names its row
+// by, so a copy of one can be read back as the reply: the latest 200, each in
+// the portions drawn of it. A mod above may split a reply around a diagram
+// and hand each side on under the reply's id.
+const drawnReplies = new Map<string, Portion[]>()
+
+// Keep every portion: one drawn again, or grown as the reply streams in,
+// takes its old place, and another goes after those drawn before it.
+function keepDrawn(requestId: string, portion: Portion): void {
+  const portions = drawnReplies.get(requestId) ?? []
+  const at = portions.findIndex(old => portion.text.startsWith(old.text) || old.text.startsWith(portion.text))
+  if (at >= 0) portions[at] = portion
+  else portions.push(portion)
+  if (portions.length > 8) portions.shift()
   drawnReplies.delete(requestId)
-  drawnReplies.set(requestId, reply)
+  drawnReplies.set(requestId, portions)
   const oldest = drawnReplies.keys().next().value
   if (drawnReplies.size > 200 && oldest !== undefined) drawnReplies.delete(oldest)
 }
@@ -230,13 +241,28 @@ function keepDrawn(requestId: string, reply: { text: string; width: number | und
 // The selection's text with its pictures back as LaTeX, or null when it is
 // not one reply drawn here or does not read as it.
 function latexOf(selected: Selected): string | null {
-  const reply = selected.requestId === undefined ? undefined : drawnReplies.get(selected.requestId)
-  if (reply === undefined) return null
+  const portions = selected.requestId === undefined ? undefined : drawnReplies.get(selected.requestId)
+  if (portions === undefined) return null
   const sizeOf = (job: Job) => {
     const entry = entries.get(keyOf(job))
     return isPicture(entry) ? entry : undefined
   }
-  return copyAsLatex(selected.text, shownOf(parseBlocks(reply.text), sizeOf, reply.width, reply.isFirstOfReply))
+  // Number the flows of each portion past the last portion's, so the lines
+  // of two portions are never joined as one paragraph.
+  const shown: Shown[] = []
+  let flows = 0
+  for (const portion of portions) {
+    const part = shownOf(parseBlocks(portion.text), sizeOf, portion.width, portion.isFirstOfReply)
+    const base = flows
+    for (const item of part) {
+      if (item.flow === undefined) shown.push(item)
+      else {
+        shown.push({ ...item, flow: base + item.flow })
+        flows = Math.max(flows, base + item.flow + 1)
+      }
+    }
+  }
+  return copyAsLatex(selected.text, shown)
 }
 
 // Replies converted for the text style, by width and text: every redraw

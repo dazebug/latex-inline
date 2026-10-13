@@ -508,3 +508,21 @@ test('with copy_latex off the clipboard is never read', { options: { mode: 'on',
   expect(state.reads).toBe(0)
   expect(state.copied).toEqual([])
 })
+
+test('a mouse copy gets its LaTeX on either side of a diagram an outer mod splits the reply around', { plugins: [OUTER_MERMAID], options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true, clock: false })
+  const clock = mock.clock(on)
+  const state = desk(on)
+  await $.session.start(SESSION)
+  const text = `Before $a$ here.\n\n${MERMAID}\n\nAfter $b$ there.`
+  await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', requestId: 'reply-1', props: { text, isFirstOfReply: true } })
+  for (const { selected, latex } of [
+    { selected: `Before ${cells(0, 4)} here.`, latex: 'Before $a$ here.' },
+    { selected: `After ${cells(0, 4)} there.`, latex: 'After $b$ there.' },
+  ]) {
+    state.selected = { text: selected, requestId: 'reply-1' }
+    state.clipboard = selected
+    for (let k = 0; k < 3; k++) await clock.advance(200)
+    expect(state.clipboard).toBe(latex)
+  }
+})
