@@ -244,6 +244,10 @@ export const register: Register = (on, options) => {
       name: 'latex-inline',
       description: 'Show whether latex-inline draws math here, and the font geometry it uses',
     })
+    // Draw the replies again now that the plugin is set up: one drawn before
+    // this ran, as at a reload of the plugin's code, went on with its LaTeX
+    // as written.
+    $.ui.invalidate('ui.render')
     return next(e)
   })
 

@@ -291,6 +291,16 @@ test('the first-line measure leaves out the empty last column', { options: { mod
   expect((await ui.findAll({ type: 'Text', text: /^\n*\d+\. $/ })).map(number => number.text)).toEqual(['1. '])
 })
 
+test('a reply drawn before the session starts is drawn again once it has', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true })
+  // As at a reload of the plugin's code: the reply on screen is drawn again
+  // before session.start has set the plugin up.
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text: '식 $x^2$ 입니다.', isFirstOfReply: true } })
+  expect(await ui.findAll({ type: 'Image' })).toEqual([])
+  await $.session.start(SESSION)
+  expect((await ui.findAll({ type: 'Image' })).map(image => image.props.alt)).toEqual(['x^2'])
+})
+
 test('a reply drawn here starts with the blank row Claude Code puts above a reply', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
   engine(on, { pictures: true })
   await $.session.start(SESSION)
