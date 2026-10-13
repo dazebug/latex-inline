@@ -173,7 +173,7 @@ test('picture mode keeps an indented code fence inside its list prose', { option
   const text = '1. 실행:\n\n   ```bash\n   echo hi\n   ```\n\n2. 식 $x^2$ 입니다.'
   const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } })
   expect(delegated).toEqual([])
-  expect((await ui.findAll({ type: 'Markdown' })).map(markdown => markdown.props.text).join('\n\n')).toContain('   ```bash\n   echo hi\n   ```')
+  expect((await ui.findAll({ type: 'Markdown' })).map(markdown => markdown.props.text)).toContain('```bash\necho hi\n```')
 })
 
 test('picture mode delegates a nested backtick fence as one code block', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
@@ -203,9 +203,10 @@ test('picture mode does not flatten a deeply indented fence into a math list', {
   engine(on, { pictures: true, observe: props => delegated.push(props.text) })
   await $.session.start(SESSION)
   const text = '- Scale by $\\sqrt{d}$.\n- Then run:\n    ```bash\n    python optimizer.py\n    ```'
-  await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } })
-  expect(delegated).toHaveLength(1)
-  expect(delegated[0]).toContain('    ```bash\n    python optimizer.py\n    ```')
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } })
+  expect(delegated).toEqual([])
+  expect((await ui.findAll({ type: 'Image' })).map(image => image.props.alt)).toEqual(['\\sqrt{d}'])
+  expect((await ui.findAll({ type: 'Markdown' })).map(markdown => markdown.props.text)).toEqual(['  ```bash\n  python optimizer.py\n  ```'])
 })
 
 test('a deeply indented code fence keeps dollar variables out of reply math detection', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
@@ -335,4 +336,113 @@ test('the math section asks for prose without LaTeX commands, which only math is
   const { sections } = await $.prompt.compose(facts)
   const math = sections.find(section => section.id === 'latex-inline:math')
   expect(math?.text).toContain('\\enquote')
+})
+
+type Drawn = { type?: string; props?: Record<string, unknown>; children?: unknown[] }
+
+// Every element of a drawn tree, depth first.
+function walk(node: unknown): Drawn[] {
+  if (node === null || typeof node !== 'object') return []
+  const element = node as Drawn
+  return [element, ...(element.children ?? []).flatMap(walk)]
+}
+
+function textOf(node: unknown): string {
+  if (typeof node === 'string') return node
+  return ((node as Drawn | null)?.children ?? []).map(textOf).join('')
+}
+
+// The row of the list item drawn with this number or bullet.
+function itemRow(tree: unknown, mark: string): Drawn | undefined {
+  return walk(tree).find(box => {
+    const head = box.children?.[0] as Drawn | undefined
+    return box.type === 'Box' && box.props?.flexDirection === 'row' && head?.type === 'Text' && textOf(head).replace(/^\n+/, '') === mark
+  })
+}
+
+const NESTED_ITEM = [
+  '1. **첫째.** $W$는 보냅니다.',
+  '',
+  '   $$W = U\\Sigma V^\\top$$',
+  '',
+  '   여기서 $U$는 행렬입니다.',
+  '   - **방향.** $xU$는 투영합니다.',
+  '   - **회전.** $V^\\top$이 회전합니다.',
+  '',
+  '   곧 고르고 돌리는 것입니다.',
+  '2. **둘째.** 첫 층뿐입니다.',
+].join('\n')
+
+test('the blocks under a list item are drawn indented to its text, with the blank rows the reply has', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true })
+  await $.session.start(SESSION)
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text: NESTED_ITEM, isFirstOfReply: true } })
+  const tree = await ui.drawn()
+  const first = itemRow(tree, '1. ')
+  const rows = (walk(tree).find(box => box.children?.includes(first))?.children ?? []) as Drawn[]
+  // Each row's indent, the blank rows above it, and its marker or what it draws.
+  const shown = (row: Drawn) => {
+    const head = row.children?.[0] as Drawn | undefined
+    if (head?.type === 'Text') return textOf(head).trim()
+    const drawn = walk(row).filter(element => element.type === 'Image' || element.type === 'Markdown')
+    return drawn.map(element => element.props?.alt ?? element.props?.text).join(' ')
+  }
+  expect(rows.map(row => [row.props?.marginLeft ?? 0, row.props?.marginTop ?? 0, shown(row)])).toEqual([
+    [0, 0, '1.'],
+    [3, 1, 'W = U\\Sigma V^\\top'],
+    [3, 1, 'U'],
+    [3, 0, '-'],
+    [3, 0, '-'],
+    [3, 1, '곧 고르고 돌리는 것입니다.'],
+    [0, 0, '2.'],
+  ])
+})
+
+test('a list right under a paragraph is drawn with no blank row between them', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true })
+  await $.session.start(SESSION)
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text: '단계는 $x$ 입니다:\n- $a$ 고르기\n- 늘이기', isFirstOfReply: true } })
+  const tree = await ui.drawn()
+  expect(walk(tree).filter(box => itemRow(box, '- ') === box)).toHaveLength(2)
+  const parts = (await ui.findAll({ type: 'Box' })).find(box => box.props.gap === 1)
+  expect(parts?.children).toHaveLength(1)
+})
+
+test('list items a blank line apart are drawn a blank row apart', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true })
+  await $.session.start(SESSION)
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text: '1. $a$\n2. $b$\n\n3. $c$', isFirstOfReply: true } })
+  const tree = await ui.drawn()
+  expect(['1. ', '2. ', '3. '].map(mark => itemRow(tree, mark)?.props?.marginTop ?? 0)).toEqual([0, 0, 1])
+})
+
+test("a nested item's bullet measures its first line in the item's column", { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true, pictureRows: 3 })
+  await $.session.start(SESSION)
+  // At 40 columns the text gets 37; the number above takes 3 and the bullet
+  // 2, which leaves 32, too few for the words and the picture: the picture
+  // wraps, and the first line is one row.
+  const text = `1. $x$ 위\n   - ${'b'.repeat(28)} $y$`
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', viewport: { columns: 40, rows: 24 }, props: { text, isFirstOfReply: true } })
+  expect((await ui.findAll({ type: 'Text', text: /^\n*(\d+\.|-) $/ })).map(mark => mark.text)).toEqual(['\n1. ', '- '])
+})
+
+test('a list nested many levels deep is still drawn', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true })
+  await $.session.start(SESSION)
+  // Claude Code refuses a drawing nested deeper than 32 elements.
+  const levels = Array.from({ length: 12 }, (_, depth) => depth)
+  const text = levels.map(depth => `${'  '.repeat(depth)}- 단계 $x_${depth}$`).join('\n')
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } })
+  expect((await ui.findAll({ type: 'Image' })).map(image => image.props.alt)).toEqual(levels.map(depth => `x_${depth}`))
+})
+
+test('an item that starts with a list has its number on a row of its own, as Claude Code draws it', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true, pictureRows: 3 })
+  await $.session.start(SESSION)
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text: '1. - $x$\n2. 둘째', isFirstOfReply: true } })
+  const tree = await ui.drawn()
+  expect(walk(itemRow(tree, '1. ')).some(element => element.type === 'Image')).toBe(false)
+  expect(itemRow(tree, '- ')?.props?.marginLeft).toBe(3)
+  expect((await ui.findAll({ type: 'Text', text: /^\n*(\d+\.|-) $|⏺/ })).map(mark => mark.text)).toEqual(['⏺', '1. ', '\n- ', '2. '])
 })

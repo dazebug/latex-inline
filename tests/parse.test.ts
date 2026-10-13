@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { glueTokens, hasMath, parseBlocks, splitMarkdownRuns, tokenize } from '../hooks/parse'
+import { glueTokens, hasMath, parseBlocks, splitMarkdownRuns, tokenize, type Block } from '../hooks/parse'
 
 test('a backtick in a fence info string does not open a fence', async () => {
   const text = '```a```\n\nplain'
@@ -140,4 +140,94 @@ test('blocks: markdown passes through, math paragraphs, display math and lists a
 test('a reply without math stays one markdown block', async () => {
   const text = '그냥 문단\n\n| a | b |\n|---|---|\n| $1 | $2 |'
   expect(parseBlocks(text)).toEqual([{ kind: 'markdown', text }])
+})
+
+test('a list item holds the blocks indented under it, and a list right under its paragraph', async () => {
+  const text = [
+    '1. **첫째.** $W$는 보냅니다.',
+    '',
+    '   $$W = U\\Sigma V^\\top$$',
+    '',
+    '   여기서 $U$는 행렬입니다.',
+    '   - **방향.** $xU$는 투영합니다.',
+    '   - **회전.** $V^\\top$이 회전합니다.',
+    '',
+    '   곧 고르고 돌리는 것입니다.',
+    '2. **둘째.** 첫 층뿐입니다.',
+  ].join('\n')
+  expect(parseBlocks(text)).toEqual([
+    {
+      kind: 'list',
+      items: [
+        {
+          prefix: '1. ',
+          tokens: tokenize('**첫째.** $W$는 보냅니다.'),
+          blocks: [
+            { kind: 'display', tex: 'W = U\\Sigma V^\\top' },
+            { kind: 'para', tokens: tokenize('여기서 $U$는 행렬입니다.') },
+            {
+              kind: 'list',
+              joined: true,
+              items: [
+                { prefix: '- ', tokens: tokenize('**방향.** $xU$는 투영합니다.') },
+                { prefix: '- ', tokens: tokenize('**회전.** $V^\\top$이 회전합니다.') },
+              ],
+            },
+            { kind: 'markdown', text: '곧 고르고 돌리는 것입니다.' },
+          ],
+        },
+        { prefix: '2. ', tokens: tokenize('**둘째.** 첫 층뿐입니다.') },
+      ],
+    },
+  ])
+})
+
+test('lists start and end where Claude Code reads them', async () => {
+  expect(parseBlocks('단계는 $x$ 입니다:\n- $a$ 고르기\n- 늘이기')).toEqual([
+    { kind: 'para', tokens: tokenize('단계는 $x$ 입니다:') },
+    {
+      kind: 'list',
+      joined: true,
+      items: [
+        { prefix: '- ', tokens: tokenize('$a$ 고르기') },
+        { prefix: '- ', tokens: tokenize('늘이기') },
+      ],
+    },
+  ])
+  // Only a bullet or the number 1 starts a list inside a paragraph.
+  expect(parseBlocks('값은 $x$ 이고\n2. 번은 아닙니다')).toEqual([{ kind: 'para', tokens: tokenize('값은 $x$ 이고 2. 번은 아닙니다') }])
+  // A bullet indented less than the text of the item above starts a list of its own.
+  expect(parseBlocks('1. $a$\n  - $b$')).toEqual([
+    { kind: 'list', items: [{ prefix: '1. ', tokens: tokenize('$a$') }] },
+    { kind: 'list', joined: true, items: [{ prefix: '- ', tokens: tokenize('$b$') }] },
+  ])
+  // Items a blank line apart stay one list; a line under an item with no indent goes on with its text.
+  expect(parseBlocks('1. $a$\n\n2. $b$\n이어서')).toEqual([
+    {
+      kind: 'list',
+      items: [
+        { prefix: '1. ', tokens: tokenize('$a$') },
+        { prefix: '2. ', tokens: tokenize('$b$ 이어서'), spaced: true },
+      ],
+    },
+  ])
+  // Claude Code puts a blank line under every heading.
+  expect(parseBlocks('## 장점\n1. $a$')).toEqual([
+    { kind: 'markdown', text: '## 장점' },
+    { kind: 'list', items: [{ prefix: '1. ', tokens: tokenize('$a$') }] },
+  ])
+  // A line of display math that looks like a list item stays in the formula.
+  expect(parseBlocks('$$\n- x + y\n$$')).toEqual([{ kind: 'display', tex: '- x + y' }])
+})
+
+function markers(blocks: Block[]): string[] {
+  return blocks.flatMap(block => (block.kind === 'list' ? block.items.flatMap(item => [item.prefix, ...markers(item.blocks ?? [])]) : []))
+}
+
+test('list markers are the ones Claude Code draws', async () => {
+  expect(markers(parseBlocks('* $a$\n* $b$'))).toEqual(['- ', '- '])
+  expect(markers(parseBlocks('1. $a$\n1. $b$'))).toEqual(['1. ', '2. '])
+  expect(markers(parseBlocks('3) $a$\n4) $b$'))).toEqual(['3. ', '4. '])
+  // Numbers one level in are letters, and two levels in roman numerals.
+  expect(markers(parseBlocks('1. $a$\n   1. $b$\n      1. $c$\n      2. $d$\n   2. $e$'))).toEqual(['1. ', 'a. ', 'i. ', 'ii. ', 'b. '])
 })

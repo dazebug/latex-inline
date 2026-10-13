@@ -3,17 +3,31 @@ export type Token =
   | { kind: 'code'; text: string }
   | { kind: 'math'; tex: string }
 
-export type ListItem = { prefix: string; tokens: Token[] }
+// An item's first paragraph goes in `tokens`, beside its marker; what is
+// indented under it goes in `blocks`. `spaced`: a blank line above the item.
+export type ListItem = { prefix: string; tokens: Token[]; blocks?: Block[]; spaced?: true }
 
-export type Block =
+// `joined`: the block sits right under the one before it, with no blank line
+// between them.
+export type Block = (
   | { kind: 'markdown'; text: string }
   | { kind: 'para'; tokens: Token[] }
   | { kind: 'list'; items: ListItem[] }
   | { kind: 'display'; tex: string }
+) & { joined?: true }
 
-const LIST_ITEM = /^(\s*)([-*+]|\d+[.)])\s+/
+const LIST_MARKER = /^( {0,3})([-*+]|\d{1,9}[.)])(?=[ \t]|$)/
+const RULE = /^ {0,3}(?:(?:-[ \t]*){3,}|(?:_[ \t]*){3,}|(?:\*[ \t]*){3,})$/
+const HEADING = /^ {0,3}#{1,6}(?:[ \t]|$)/
+const QUOTE = /^ {0,3}>/
+const TABLE = /^ {0,3}\|/
+const DISPLAY_OPENING = /^[ \t]*(?:\$\$|\\\[)/
 const WHITESPACE = /\s/
 const DIGIT = /[0-9]/
+const ROMAN: [number, string][] = [
+  [1000, 'm'], [900, 'cm'], [500, 'd'], [400, 'cd'], [100, 'c'], [90, 'xc'], [50, 'l'],
+  [40, 'xl'], [10, 'x'], [9, 'ix'], [5, 'v'], [4, 'iv'], [1, 'i'],
+]
 
 type Fence = { character: '`' | '~'; length: number; indent: number; columnZero: boolean }
 
@@ -23,9 +37,11 @@ function indentColumns(indent: string): number {
   return columns
 }
 
-// Do not limit an opening fence to three spaces of indent: this parser does
-// not track list items, so the limit would miss a fence nested in a list and
-// draw its code as list text or math.
+// Do not limit an opening fence to three spaces of indent: the Markdown
+// splitting below does not track list items, so the limit would miss a fence
+// nested in a list; and a fence indented further, which Claude Code's
+// Markdown shows as indented code, would be read as text with its dollars as
+// math.
 function opensFence(line: string): Fence | null {
   const content = line.endsWith('\r') ? line.slice(0, -1) : line
   const match = /^([ \t]*)(`{3,}|~{3,})(.*)$/.exec(content)
@@ -181,50 +197,254 @@ function rawBlocks(lines: string[]): string[][] {
   return blocks
 }
 
-// A block the mod draws itself, or null to leave it to the engine's Markdown.
-function classify(lines: string[]): Block | null {
-  if (lines.some(line => opensFence(line) !== null)) return null
+// A run of a container's lines, from `start` up to `end`; `joined`: no blank
+// line comes before it.
+type Chunk = { start: number; end: number; joined: boolean } & (
+  | { kind: 'text' }
+  | { kind: 'display'; tex: string }
+  | { kind: 'other' }
+  | { kind: 'list'; ordered: boolean; first: number; items: { lines: string[]; spaced: boolean }[] }
+)
+type ListChunk = Extract<Chunk, { kind: 'list' }>
+
+function isBlank(line: string): boolean {
+  return line.trim() === ''
+}
+
+function leading(line: string): number {
+  return indentColumns(/^[ \t]*/.exec(line)?.[0] ?? '')
+}
+
+// The line with its indent's tabs turned into spaces, so columns can be cut off it.
+function untab(line: string): string {
+  const indent = /^[ \t]*/.exec(line)?.[0] ?? ''
+  return indent.includes('\t') ? ' '.repeat(indentColumns(indent)) + line.slice(indent.length) : line
+}
+
+function listMarker(line: string): RegExpExecArray | null {
+  return RULE.test(line) ? null : LIST_MARKER.exec(line)
+}
+
+// Whether two markers start items of one list: the same bullet, or numbers
+// closed the same way.
+function sameList(a: string, b: string): boolean {
+  return DIGIT.test(a) ? DIGIT.test(b) && a.slice(-1) === b.slice(-1) : a === b
+}
+
+function displayTex(lines: string[]): string | null {
   const joined = lines.join('\n').trim()
   const display = /^\$\$([\s\S]+)\$\$$/.exec(joined) ?? /^\\\[([\s\S]+)\\\]$/.exec(joined)
-  if (display) return { kind: 'display', tex: (display[1] ?? '').trim() }
+  return display ? (display[1] ?? '').trim() : null
+}
 
-  const first = lines[0] ?? ''
-  if (/^\s*(#|>|\|)/.test(first)) return null
+// A line that ends the paragraph above it, as in Claude Code's Markdown: a
+// fence, a heading, a quote, or an item with text that is a bullet or the
+// number 1.
+function breaksParagraph(line: string): boolean {
+  if (opensFence(line) !== null || HEADING.test(line) || QUOTE.test(line)) return true
+  const marker = listMarker(untab(line))
+  return marker !== null && /^(?:[-*+]|1[.)])$/.test(marker[2] ?? '') && !isBlank(line.slice(marker[0].length))
+}
 
-  if (LIST_ITEM.test(first)) {
-    const raw: { prefix: string; text: string }[] = []
-    for (const line of lines) {
-      const marker = LIST_ITEM.exec(line)
-      const last = raw[raw.length - 1]
-      if (marker) raw.push({ prefix: `${marker[1] ?? ''}${marker[2] ?? ''} `, text: line.slice(marker[0].length) })
-      else if (last) last.text += ` ${line.trim()}`
+// A line that ends a list item whose text starts at column `indent`, as in
+// Claude Code's Markdown: a fence, heading, HTML block, list item or rule
+// left of that column.
+function endsItem(line: string, indent: number): boolean {
+  if (isBlank(line) || leading(line) > Math.min(3, indent - 1)) return false
+  const body = line.trimStart()
+  return /^(?:```|~~~|#|<(?:[a-z].*>|!--))/i.test(body) || /^(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)/.test(body) || RULE.test(line)
+}
+
+// Reads the list starting at `start` the way Claude Code's Markdown does: an
+// item goes on over blank lines while its lines are indented to its text, a
+// line with less indent goes on with its paragraph until a blank line, and
+// the list goes on while items with the same kind of marker follow.
+function readList(lines: string[], start: number, joined: boolean): ListChunk {
+  const marker = listMarker(untab(lines[start] ?? ''))?.[2] ?? '-'
+  const items: ListChunk['items'] = []
+  let end = start
+  let spaced = false
+  let i = start
+  while (i < lines.length) {
+    const line = untab(lines[i] ?? '')
+    const match = listMarker(line)
+    if (!match || !sameList(match[2] ?? '', marker)) break
+    const rest = line.slice(match[0].length)
+    const spaces = rest.search(/\S/)
+    const pad = spaces < 0 || spaces > 4 ? 1 : spaces
+    const indent = match[0].length + pad
+    const content = [isBlank(rest) ? '' : rest.slice(pad)]
+    let blank = isBlank(rest)
+    let k = i + 1
+    // An item starts with at most one blank line.
+    const empty = blank && k < lines.length && isBlank(lines[k] ?? '')
+    for (; !empty && k < lines.length; k++) {
+      const next = untab(lines[k] ?? '')
+      if (endsItem(next, indent)) break
+      const previous = content[content.length - 1] ?? ''
+      if (isBlank(next) || leading(next) >= indent) content.push(next.slice(indent))
+      else if (blank || leading(previous) >= 4 || opensFence(previous) !== null || HEADING.test(previous) || RULE.test(previous)) break
+      else content.push(next)
+      if (isBlank(next)) blank = true
     }
-    const items = raw.map(item => ({ prefix: item.prefix, tokens: tokenize(item.text) }))
-    return items.some(item => hasMathToken(item.tokens)) ? { kind: 'list', items } : null
+    // Blank lines at the end go between this item and the next.
+    let last = content.length
+    while (last > 1 && isBlank(content[last - 1] ?? '')) last--
+    items.push({ lines: content.slice(0, last), spaced })
+    spaced = last < content.length
+    end = k - (content.length - last)
+    i = k
   }
+  const ordered = DIGIT.test(marker)
+  return { kind: 'list', start, end, joined, ordered, first: ordered ? Number.parseInt(marker, 10) : 1, items }
+}
 
-  const tokens = tokenize(lines.map(line => line.trim()).join(' '))
-  return hasMathToken(tokens) ? { kind: 'para', tokens } : null
+function readChunk(lines: string[], start: number, joined: boolean): Chunk {
+  const line = lines[start] ?? ''
+  const fence = opensFence(line)
+  if (fence) {
+    let end = start + 1
+    while (end < lines.length && !closesFence(lines[end] ?? '', fence)) end++
+    return { kind: 'other', start, end: Math.min(end + 1, lines.length), joined }
+  }
+  const toBlank = () => {
+    let end = start + 1
+    while (end < lines.length && !isBlank(lines[end] ?? '') && opensFence(lines[end] ?? '') === null) end++
+    return end
+  }
+  if (DISPLAY_OPENING.test(line)) {
+    const end = toBlank()
+    const tex = displayTex(lines.slice(start, end))
+    if (tex !== null) return { kind: 'display', tex, start, end, joined }
+  }
+  if (listMarker(untab(line))) return readList(lines, start, joined)
+  if (HEADING.test(line) || RULE.test(line)) return { kind: 'other', start, end: start + 1, joined }
+  if (QUOTE.test(line) || TABLE.test(line)) return { kind: 'other', start, end: toBlank(), joined }
+  let end = start + 1
+  while (end < lines.length && !isBlank(lines[end] ?? '') && !breaksParagraph(lines[end] ?? '')) end++
+  return { kind: 'text', start, end, joined }
+}
+
+// Splits a container's lines into chunks: the reply's, or a list item's
+// with its indent taken off. Claude Code puts a blank line under every
+// heading, so nothing is joined to one.
+function scan(lines: string[]): Chunk[] {
+  const chunks: Chunk[] = []
+  let blank = false
+  let i = 0
+  while (i < lines.length) {
+    if (isBlank(lines[i] ?? '')) {
+      blank = true
+      i++
+      continue
+    }
+    const previous = chunks[chunks.length - 1]
+    const underHeading = previous?.kind === 'other' && HEADING.test(lines[previous.start] ?? '')
+    const chunk = readChunk(lines, i, previous !== undefined && !blank && !underHeading)
+    chunks.push(chunk)
+    blank = false
+    i = chunk.end
+  }
+  return chunks
+}
+
+function tokensOf(lines: string[]): Token[] {
+  return tokenize(lines.map(line => line.trim()).join(' '))
+}
+
+function letters(n: number): string {
+  let out = ''
+  let rest = n
+  while (rest > 0) {
+    rest--
+    out = String.fromCharCode(97 + (rest % 26)) + out
+    rest = Math.floor(rest / 26)
+  }
+  return out
+}
+
+function roman(n: number): string {
+  let out = ''
+  let rest = n
+  for (const [value, digits] of ROMAN) {
+    for (; rest >= value; rest -= value) out += digits
+  }
+  return out
+}
+
+// The marker Claude Code draws: a dash for every bullet, and the list's
+// start counted on for a number, in letters one list in and in roman
+// numerals two lists in.
+function markerOf(list: ListChunk, index: number, depth: number): string {
+  if (!list.ordered) return '-'
+  const number = list.first + index
+  if (depth === 1 && list.first >= 1) return `${letters(number)}.`
+  if (depth === 2 && list.first >= 1 && list.first + list.items.length - 1 <= 3999) return `${roman(number)}.`
+  return `${number}.`
+}
+
+function hasBlockMath(block: Block): boolean {
+  if (block.kind === 'display') return true
+  if (block.kind === 'para') return hasMathToken(block.tokens)
+  if (block.kind === 'list') return block.items.some(item => hasMathToken(item.tokens) || (item.blocks ?? []).some(hasBlockMath))
+  return false
+}
+
+function listOf(list: ListChunk, depth: number): Block {
+  const items = list.items.map((item, index): ListItem => {
+    const chunks = scan(item.lines)
+    const head = chunks[0]
+    const opens = head !== undefined && (head.kind === 'text' || head.kind === 'display')
+    const tokens = opens ? tokensOf(item.lines.slice(head.start, head.end)) : []
+    const blocks = blocksOf(item.lines, opens ? chunks.slice(1) : chunks, depth + 1)
+    return {
+      prefix: `${markerOf(list, index, depth)} `,
+      tokens,
+      ...(blocks.length > 0 ? { blocks } : {}),
+      ...(item.spaced ? { spaced: true as const } : {}),
+    }
+  })
+  return { kind: 'list', items }
+}
+
+// The block the mod draws for a chunk `depth` lists in, or null to leave it
+// to the engine's Markdown. A list in a list is always drawn here, so it
+// keeps its place in the item.
+function drawnBlock(lines: string[], chunk: Chunk, depth: number): Block | null {
+  if (chunk.kind === 'display') return { kind: 'display', tex: chunk.tex }
+  if (chunk.kind === 'text') {
+    const tokens = tokensOf(lines.slice(chunk.start, chunk.end))
+    return hasMathToken(tokens) ? { kind: 'para', tokens } : null
+  }
+  if (chunk.kind !== 'list') return null
+  const list = listOf(chunk, depth)
+  return depth > 0 || hasBlockMath(list) ? list : null
+}
+
+// Chunks next to each other that the mod leaves to Markdown go as one block
+// with their lines as written.
+function blocksOf(lines: string[], chunks: Chunk[], depth: number): Block[] {
+  const out: Block[] = []
+  let markdown: { start: number; end: number; joined: boolean } | undefined
+  const join = (block: Block, joined: boolean): Block => (joined ? { ...block, joined: true } : block)
+  for (const chunk of chunks) {
+    const block = drawnBlock(lines, chunk, depth)
+    if (block === null) {
+      if (markdown) markdown.end = chunk.end
+      else markdown = { start: chunk.start, end: chunk.end, joined: chunk.joined }
+      continue
+    }
+    if (markdown) out.push(join({ kind: 'markdown', text: lines.slice(markdown.start, markdown.end).join('\n') }, markdown.joined))
+    markdown = undefined
+    out.push(join(block, chunk.joined))
+  }
+  if (markdown) out.push(join({ kind: 'markdown', text: lines.slice(markdown.start, markdown.end).join('\n') }, markdown.joined))
+  return out
 }
 
 export function parseBlocks(text: string): Block[] {
-  const out: Block[] = []
-  let markdown: string[] = []
-  const flushMarkdown = () => {
-    if (markdown.length > 0) out.push({ kind: 'markdown', text: markdown.join('\n\n') })
-    markdown = []
-  }
-  for (const lines of rawBlocks(text.split('\n'))) {
-    const block = classify(lines)
-    if (block) {
-      flushMarkdown()
-      out.push(block)
-    } else {
-      markdown.push(lines.join('\n'))
-    }
-  }
-  flushMarkdown()
-  return out
+  const lines = text.split('\n')
+  return blocksOf(lines, scan(lines), 0)
 }
 
 export function hasMath(text: string): boolean {

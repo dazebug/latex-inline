@@ -28,7 +28,8 @@ const MATH_INSTRUCTION = [
 type Picture = { file: string; columns: number; rows: number }
 type Entry = Picture | { error: string }
 type Job = { tex: string; display: boolean }
-type RenderBlock = Exclude<Block, { kind: 'markdown' }> | { kind: 'prose'; text: string } | { kind: 'code'; text: string }
+type ListBlock = Extract<Block, { kind: 'list' }>
+type RenderBlock = Exclude<Block, { kind: 'markdown' }> | { kind: 'prose'; text: string; joined?: true } | { kind: 'code'; text: string }
 type Options = Readonly<Record<string, unknown>>
 
 const entries = new Map<string, Entry>()
@@ -294,24 +295,49 @@ export const register: Register = (on, options) => {
         renderBlocks.push(block)
         continue
       }
+      let joined = block.joined === true
       for (const run of splitMarkdownRuns(block.text)) {
         if (run.kind === 'code') {
           renderBlocks.push({ kind: 'code', text: run.text })
+          joined = false
           continue
         }
         const pieces = splitMarkdown(unicodeMath(run.text, width), MARKDOWN_LIMIT)
         if (pieces === null) return asUnicode()
-        for (const text of pieces) renderBlocks.push({ kind: 'prose', text })
+        for (const text of pieces) {
+          renderBlocks.push(joined ? { kind: 'prose', text, joined } : { kind: 'prose', text })
+          joined = false
+        }
       }
     }
 
+    // The columns a flow gets: the reply's width less the last column, which
+    // the rows below leave empty (paddingRight).
+    const lineWidth = (width ?? 78) - 1
+    // Markdown inside a list item, Unicode for its column and in pieces, as
+    // the reply's own Markdown is; one that cannot be cut leaves the reply to
+    // the engine.
+    const nested = new Map<Block, string[]>()
+    const cut = (block: Block, columns: number | undefined): boolean => {
+      if (block.kind === 'markdown') {
+        const pieces = splitMarkdown(unicodeMath(block.text, columns), MARKDOWN_LIMIT)
+        if (pieces !== null) nested.set(block, pieces)
+        return pieces !== null
+      }
+      if (block.kind !== 'list') return true
+      return block.items.every(item => (item.blocks ?? []).every(child => cut(child, columns === undefined ? undefined : columns - cellWidth(item.prefix))))
+    }
+    if (!blocks.every(block => block.kind === 'markdown' || cut(block, width))) return asUnicode()
+
     const pictures = new Map<string, Entry | undefined>()
     const jobs: Job[] = []
-    for (const block of blocks) {
+    const collect = (block: Block) => {
       if (block.kind === 'display') jobs.push({ tex: block.tex, display: true })
       const tokens = block.kind === 'para' ? block.tokens : block.kind === 'list' ? block.items.flatMap(item => item.tokens) : []
       for (const token of tokens) if (token.kind === 'math') jobs.push({ tex: token.tex, display: false })
+      if (block.kind === 'list') for (const item of block.items) for (const child of item.blocks ?? []) collect(child)
     }
+    for (const block of blocks) collect(block)
     for (const job of jobs) {
       const key = keyOf(job)
       if (!pictures.has(key)) pictures.set(key, await lookup($, job))
@@ -370,9 +396,52 @@ export const register: Register = (on, options) => {
         const boxes = group.map(boxOf)
         return { columns: boxes.reduce((sum, box) => sum + box.columns, 0), rows: Math.max(1, ...boxes.map(box => box.rows)) }
       })
-    // The columns a flow gets: the reply's width less the last column, which
-    // the rows below leave empty (paddingRight).
-    const lineWidth = (width ?? 78) - 1
+
+    // A block of the reply, or one under a list item, drawn in the column it
+    // is placed in.
+    const draw = (block: Block): RenderElement => {
+      if (block.kind === 'para') return flow(block.tokens)
+      if (block.kind === 'display') {
+        return (
+          <Box flexDirection="row" justifyContent="center">
+            {picture({ tex: block.tex, display: true }, `$$${block.tex}$$`)}
+          </Box>
+        )
+      }
+      if (block.kind === 'list') return <Box flexDirection="column">{listRows(block, 0, 0)}</Box>
+      const pieces = (nested.get(block) ?? []).map(text => <Markdown text={text} />)
+      return pieces.length === 1 && pieces[0] ? pieces[0] : <Box flexDirection="column" gap={1}>{pieces}</Box>
+    }
+
+    // Keep a list's rows in one column however deep it goes, each indented to
+    // its place, not a box per item: Claude Code refuses a drawing nested
+    // deeper than 32 levels, and a box per item adds levels with every list in
+    // a list. An item that starts with a block other than a paragraph has its
+    // marker on a row of its own, as Claude Code draws it. The number is drawn
+    // at the top of its row and moved down to the first line's text row:
+    // centered against the whole item, it would drift into the middle of an
+    // item that wraps onto several lines.
+    const listRows = (block: ListBlock, indent: number, marginTop: number): RenderElement[] =>
+      block.items.flatMap((item, index) => {
+        const inner = indent + cellWidth(item.prefix)
+        const rows = [
+          <Box flexDirection="row" alignItems="flex-start" marginLeft={indent} marginTop={index === 0 ? marginTop : item.spaced ? 1 : 0}>
+            <Text>{onTextRow(item.prefix, firstLineRows(groupBoxes(item.tokens), lineWidth - inner))}</Text>
+            {flow(item.tokens)}
+          </Box>,
+        ]
+        for (const [place, child] of (item.blocks ?? []).entries()) {
+          const top = child.joined || (place === 0 && item.tokens.length === 0) ? 0 : 1
+          if (child.kind === 'list') rows.push(...listRows(child, inner, top))
+          else rows.push(
+            <Box flexDirection="column" marginLeft={inner} marginTop={top}>
+              {draw(child)}
+            </Box>,
+          )
+        }
+        return rows
+      })
+
     const first = renderBlocks[0]
     let firstRows = 1
     if (first?.kind === 'para') firstRows = firstLineRows(groupBoxes(first.tokens), lineWidth)
@@ -394,13 +463,17 @@ export const register: Register = (on, options) => {
     // block does in the normal view, so whoever places it adds none. Where
     // Claude Code puts a message header above a reply instead, as in the ctrl+o
     // view, it leaves that row out, and a mod cannot tell those views apart.
+    // Blocks with no blank line between them in the reply go in one column,
+    // so the gap between parts puts no blank row between them.
     const rows: RenderElement[] = []
-    let direct: RenderElement[] = []
+    let direct: RenderElement[][] = []
     let directIsFirst = false
     let isFirst = e.props.isFirstOfReply
-    const addDirect = (element: RenderElement) => {
+    const addDirect = (element: RenderElement, joined: boolean) => {
       if (direct.length === 0) directIsFirst = isFirst
-      direct.push(element)
+      const last = direct[direct.length - 1]
+      if (joined && last) last.push(element)
+      else direct.push([element])
       isFirst = false
     }
     const flushDirect = () => {
@@ -411,7 +484,7 @@ export const register: Register = (on, options) => {
             <Text>{directIsFirst ? bullet : ' '}</Text>
           </Box>
           <Box flexDirection="column" gap={1} flexGrow={1} flexShrink={1}>
-            {direct}
+            {direct.map(group => (group.length === 1 && group[0] ? group[0] : <Box flexDirection="column">{group}</Box>))}
           </Box>
         </Box>,
       )
@@ -441,35 +514,10 @@ export const register: Register = (on, options) => {
         continue
       }
       if (block.kind === 'prose') {
-        addDirect(<Markdown text={block.text} />)
+        addDirect(<Markdown text={block.text} />, block.joined === true)
         continue
       }
-
-      let content: RenderElement
-      if (block.kind === 'para') {
-        content = flow(block.tokens)
-      } else if (block.kind === 'display') {
-        content = (
-          <Box flexDirection="row" justifyContent="center">
-            {picture({ tex: block.tex, display: true }, `$$${block.tex}$$`)}
-          </Box>
-        )
-      } else {
-        // Draw the number at the top of its item and move it down to the
-        // first line's text row: centered against the whole item, it would
-        // drift into the middle of an item that wraps onto several lines.
-        content = (
-          <Box flexDirection="column">
-            {block.items.map(item => (
-              <Box flexDirection="row" alignItems="flex-start">
-                <Text>{onTextRow(item.prefix, firstLineRows(groupBoxes(item.tokens), lineWidth - cellWidth(item.prefix)))}</Text>
-                {flow(item.tokens)}
-              </Box>
-            ))}
-          </Box>
-        )
-      }
-      addDirect(content)
+      addDirect(draw(block), block.joined === true)
     }
     flushDirect()
     return <Box flexDirection="column">{rows}</Box>
