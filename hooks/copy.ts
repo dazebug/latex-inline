@@ -130,28 +130,32 @@ export function shownOf(
   return out
 }
 
-type Piece =
-  | { kind: 'space'; text: string }
-  | { kind: 'char'; text: string }
-  | { kind: 'run'; row: number; first: number; last: number }
+// A picture's cells on one row: the row, its first and last column in the
+// picture, and the cell it starts at on its selected line.
+type Run = { row: number; first: number; last: number; column: number }
+
+type Piece = { kind: 'space'; text: string } | { kind: 'char'; text: string } | ({ kind: 'run' } & Run)
 
 // A selected line in pieces: a picture's cells on one row as one run, other
 // characters one grapheme each, and the spaces between them.
 function piecesOf(line: string): Piece[] {
   const pieces: Piece[] = []
+  let column = 0
   for (const grapheme of graphemes(line)) {
     const last = pieces[pieces.length - 1]
     if (grapheme.startsWith(PLACEHOLDER)) {
-      const [row, column] = [...grapheme].slice(1).map(mark => INDEX.get(mark.codePointAt(0) ?? 0))
-      if (row !== undefined && column !== undefined) {
-        if (last?.kind === 'run' && last.row === row && last.last + 1 === column) last.last = column
-        else pieces.push({ kind: 'run', row, first: column, last: column })
+      const [row, cell] = [...grapheme].slice(1).map(mark => INDEX.get(mark.codePointAt(0) ?? 0))
+      if (row !== undefined && cell !== undefined) {
+        if (last?.kind === 'run' && last.row === row && last.last + 1 === cell) last.last = cell
+        else pieces.push({ kind: 'run', row, first: cell, last: cell, column })
+        column += 1
         continue
       }
     }
     if (!SPACE.test(grapheme)) pieces.push({ kind: 'char', text: grapheme })
     else if (last?.kind === 'space') last.text += grapheme
     else pieces.push({ kind: 'space', text: grapheme })
+    column += cellWidth(grapheme)
   }
   // Count the bullet as the gutter's blank, not as text: on the middle row
   // of a display formula that opens the reply, it would keep that row from
@@ -166,26 +170,53 @@ function piecesOf(line: string): Piece[] {
 // on its line is all that line holds.
 type Unit = { line: number; piece: number } & (
   | { kind: 'char'; text: string }
-  | { kind: 'run'; row: number; first: number; last: number; opens: boolean; closes: boolean; alone: boolean }
+  | ({ kind: 'run'; opens: boolean; closes: boolean; alone: boolean } & Run)
 )
+
+// What the alignment reads off the selected lines: which hold text, the runs
+// on each, and the last line's index. The first line runs from where the
+// selection starts to the row's end, the last from the row's start to where
+// it ends, and every line between them is selected whole. Cells count from
+// the row's start on every line but the first.
+type Layout = { hasText: readonly boolean[]; runs: readonly (readonly Run[])[]; last: number }
 
 // A run is a picture's text row, where its LaTeX goes, when it is the
 // picture's middle row and as wide as the picture where the selection does not
-// cut it. Every picture has its baseline in its middle row. A display formula
-// has its rows to itself, and one wider than the reply is cut on both sides,
-// so any part of its middle row alone on its line will do.
+// cut it, and when the picture's other rows fall where the selection shows
+// them. Every picture has its baseline in its middle row.
 //
-// Do not take a run for a picture's middle row while a selected line on the
-// picture's other rows holds text: the cells under one formula would pass for
-// the middle row of a taller formula further on. Text sits only on the middle
-// row of the pictures beside it, and a display formula's rows hold it alone.
-function fits(run: Extract<Unit, { kind: 'run' }>, picture: Picture, hasText: readonly boolean[]): boolean {
+// Check the other rows as a group, not the middle row alone: the rows under
+// one formula would pass for the middle row of a taller formula further on.
+// Text sits only on the middle row of the pictures beside it, so the other
+// rows' lines hold none; a line between the first and last shows the row
+// whole, under the middle row. A display formula has its rows to itself,
+// and one wider than the reply shows the middle part its centering leaves.
+function fits(run: Extract<Unit, { kind: 'run' }>, picture: Picture, layout: Layout): boolean {
   const middle = Math.floor((picture.rows - 1) / 2)
   if (run.row !== middle || run.last >= picture.columns) return false
-  const isCut = (run.first !== 0 && !run.opens) || (run.last !== picture.columns - 1 && !run.closes)
-  if (picture.display ? !run.alone : isCut) return false
-  for (let line = run.line - middle; line < run.line - middle + picture.rows; line++) {
-    if ((line !== run.line || picture.display) && hasText[line] === true) return false
+  const isWhole = (part: Run) =>
+    (part.first === 0 && part.last === picture.columns - 1) ||
+    (picture.display && part.first > 0 && part.last < picture.columns - 1 && Math.abs(part.first - (picture.columns - 1 - part.last)) <= 1)
+  if (picture.display) {
+    if (!run.alone || layout.hasText[run.line] === true || !(isWhole(run) || run.opens || run.closes)) return false
+  } else if ((run.first !== 0 && !run.opens) || (run.last !== picture.columns - 1 && !run.closes)) return false
+  const left = isWhole(run) ? run.first : 0
+  const right = isWhole(run) ? run.last : picture.columns - 1
+  const edge = run.column - run.first
+  for (let row = 0; row < picture.rows; row++) {
+    const line = run.line - middle + row
+    if (row === middle || line < 0 || line > layout.last) continue
+    if (layout.hasText[line] === true) return false
+    const parts = layout.runs[line] ?? []
+    if (line > 0 && line < layout.last) {
+      const part = parts.find(part => part.row === row && part.first === left && part.last === right && (run.line === 0 || part.column - part.first === edge))
+      if (part === undefined || (picture.display && parts.length !== 1)) return false
+    } else if (picture.display) {
+      // On the first line the row is cut only on its left, on the last only
+      // on its right, and it is all the line holds.
+      const part = parts[0]
+      if (parts.length > 1 || (part !== undefined && (part.row !== row || (line === 0 ? part.last !== right : part.first !== left)))) return false
+    }
   }
   return true
 }
@@ -204,7 +235,7 @@ const NONE = -1_000_000_000
 // against a stretch of the reply, and answers each unit's place in `shown`
 // (-1 for none) along every best alignment. A run left out costs nothing: it
 // is a picture's row other than its text row.
-function align(units: Unit[], shown: Shown[], hasText: readonly boolean[]): Int32Array[] | null {
+function align(units: Unit[], shown: Shown[], layout: Layout): Int32Array[] | null {
   const m = units.length
   const n = shown.length
   const stride = n + 1
@@ -227,7 +258,7 @@ function align(units: Unit[], shown: Shown[], hasText: readonly boolean[]): Int3
           ? item.kind === 'char' && item.text === unit.text
             ? MATCH
             : NONE
-          : item.kind === 'picture' && fits(unit, item, hasText)
+          : item.kind === 'picture' && fits(unit, item, layout)
             ? unit.first === 0 && unit.last === item.columns - 1
               ? WHOLE_PICTURE
               : PICTURE
@@ -295,7 +326,8 @@ export function copyAsLatex(selected: string, shown: Shown[]): string | null {
   if (last?.kind === 'run') last.closes = true
 
   const hasText = lines.map(pieces => pieces.some(piece => piece.kind === 'char'))
-  const alignments = align(units, shown, hasText)
+  const runs = lines.map(pieces => pieces.flatMap(piece => (piece.kind === 'run' ? [piece] : [])))
+  const alignments = align(units, shown, { hasText, runs, last: lines.length - 1 })
   const placed = alignments?.[0]
   if (!alignments || !placed) return null
   const latexAt = (along: Int32Array) =>

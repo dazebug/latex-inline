@@ -96,9 +96,9 @@ test("the cells over a formula are not taken for a one-row formula's", async () 
   const sizes = { p: { columns: 2, rows: 1 }, q: { columns: 6, rows: 1 }, '\\frac{a}{b}': { columns: 4, rows: 3 } }
   const selected = [
     `First ${cells(0, 0, 1)} ends here and then`,
-    `${pad(40)}${cells(0, 0, 3)}`,
+    `${pad(35)}${cells(0, 0, 3)}`,
     `  ${cells(0, 0, 5)} starts the next line with ${cells(1, 0, 3)} in it.`,
-    `${pad(40)}${cells(2, 0, 3)}`,
+    `${pad(35)}${cells(2, 0, 3)}`,
   ].join('\n')
   expect(copyAsLatex(selected, shown(reply, sizes))).toBe('First $p$ ends here and then $q$ starts the next line with $\\frac{a}{b}$ in it.')
 })
@@ -134,6 +134,15 @@ test('a picture beside text that the reply cannot place is not dropped from the 
   // formula, so it is left as Claude Code made it.
   const reply = 'Area $A$ here.'
   expect(copyAsLatex(`Area ${cells(0, 0, 5)} here.`, shown(reply, { A: { columns: 4, rows: 1 } }))).toBe(null)
+})
+
+test('a formula selected alone does not take in the display formula after it', async () => {
+  // The fraction's rows, alone: its last row has the row index of the display
+  // formula's middle row, but a whole row of that formula would stand above it.
+  const reply = '$\\frac{a}{b}$\n\n$$D$$'
+  const sizes = { '\\frac{a}{b}': { columns: 4, rows: 3 }, D: { columns: 20, rows: 5 } }
+  expect(copyAsLatex([cells(0, 0, 3), cells(1, 0, 3), cells(2, 0, 3)].join('\n'), shown(reply, sizes))).toBe('$\\frac{a}{b}$')
+  expect(copyAsLatex([cells(0, 0, 3), `  ${cells(1, 0, 3)}`, `  ${cells(2, 0, 3)}`].join('\n'), shown(reply, sizes))).toBe('$\\frac{a}{b}$')
 })
 
 test('a display formula selected alone is copied as its LaTeX', async () => {
