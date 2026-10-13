@@ -413,15 +413,14 @@ export const register: Register = (on, options) => {
       return pieces.length === 1 && pieces[0] ? pieces[0] : <Box flexDirection="column" gap={1}>{pieces}</Box>
     }
 
-    // The rows of a list `indent` columns in, all in one column however deep
-    // the list goes, since Claude Code refuses a drawing nested too deep: each
-    // item's first line beside its marker, then each block under it indented
-    // to the item's text, a blank row above each block with a blank line
-    // above it. An item that starts with another kind of block has its marker
-    // on a row of its own, as Claude Code draws it. The number is drawn at the
-    // top of its row and moved down to the first line's text row: centered
-    // against the whole item, it would drift into the middle of an item that
-    // wraps onto several lines.
+    // Keep a list's rows in one column however deep it goes, each indented to
+    // its place, not a box per item: Claude Code refuses a drawing nested
+    // deeper than 32 levels, and a box per item adds levels with every list in
+    // a list. An item that starts with a block other than a paragraph has its
+    // marker on a row of its own, as Claude Code draws it. The number is drawn
+    // at the top of its row and moved down to the first line's text row:
+    // centered against the whole item, it would drift into the middle of an
+    // item that wraps onto several lines.
     const listRows = (block: ListBlock, indent: number, marginTop: number): RenderElement[] =>
       block.items.flatMap((item, index) => {
         const inner = indent + cellWidth(item.prefix)
