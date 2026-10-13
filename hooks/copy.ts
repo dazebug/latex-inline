@@ -440,6 +440,10 @@ export function copyWatcher(deps: {
       watched.latex ??= deps.rewrite(selected)
       if (watched.latex === null) return
       if ((await deps.readClipboard()) !== selected.text) return
+      // The person may have selected again while the clipboard was read, and
+      // Claude Code copied that: write only for the selection still standing.
+      const standing = await deps.selection()
+      if (standing?.text !== selected.text || standing.requestId !== selected.requestId) return
       await deps.write(watched.latex)
     } finally {
       isBusy = false

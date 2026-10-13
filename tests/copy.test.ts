@@ -186,12 +186,14 @@ test('the items of a list stay on their own lines and keep their indent', async 
 // The watcher, driven by hand: what is selected, what the clipboard holds,
 // the clock, and what it wrote.
 function harness(rewrite: (selected: Selected) => string | null = () => 'LATEX') {
-  const state = { selected: undefined as Selected | undefined, clipboard: 'before', now: 0, reads: 0, written: [] as string[] }
+  const state = { selected: undefined as Selected | undefined, clipboard: 'before', now: 0, reads: 0, written: [] as string[], onRead: undefined as (() => void) | undefined }
   const tick = copyWatcher({
     selection: async () => state.selected,
     readClipboard: async () => {
       state.reads++
-      return state.clipboard
+      const clipboard = state.clipboard
+      state.onRead?.()
+      return clipboard
     },
     write: async text => {
       state.written.push(text)
@@ -240,6 +242,22 @@ test('what another program put on the clipboard is left alone', async () => {
   state.clipboard = 'copied elsewhere'
   for (let k = 0; k < 20; k++) await step()
   expect(state.written).toEqual([])
+})
+
+test('a selection that changes while the clipboard is read is not written over', async () => {
+  const { state, step } = harness()
+  state.selected = { text: PICTURED, requestId: 'r' }
+  await step()
+  state.clipboard = PICTURED
+  // The person selects again, and Claude Code copies that, while the
+  // clipboard read is under way.
+  state.onRead = () => {
+    state.selected = { text: `${PICTURED} more`, requestId: 'r' }
+    state.clipboard = `${PICTURED} more`
+  }
+  await step()
+  expect(state.written).toEqual([])
+  expect(state.clipboard).toBe(`${PICTURED} more`)
 })
 
 test('a copy Claude Code makes again later is replaced again', async () => {
