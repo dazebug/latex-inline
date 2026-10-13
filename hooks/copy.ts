@@ -41,8 +41,9 @@ const SPACE = /^\s+$/u
 // text row; Claude Code's own gutter is left out of a selection.
 const BULLET = '⏺'
 
-// The most cells one alignment fills, about a selection of four thousand
-// characters across a reply of five thousand.
+// The most cells one alignment fills, a byte each: about a selection of four
+// thousand characters across a reply of five thousand. A bigger one is left
+// as copied.
 const MAX_CELLS = 20_000_000
 
 export type Size = { columns: number; rows: number }
@@ -104,11 +105,13 @@ export function shownOf(
       else text(token.text, flow)
     }
   }
-  // A code block that opens the reply is Claude Code's drawing, with its gutter.
   const walk = (block: Block, columns: number | undefined, nested: boolean) => {
     if (block.kind === 'markdown' && nested) text(unicodeMath(block.text, columns))
     else if (block.kind === 'markdown') {
       for (const run of splitMarkdownRuns(block.text)) {
+        // Mark a code block that opens the reply bare: the mod hands it on
+        // whole, and Claude Code draws it with its own gutter, which a
+        // selection leaves out.
         if (run.kind === 'code') text(codeOf(run.text), undefined, opens)
         else text(unicodeMath(run.text, columns))
         opens = false
