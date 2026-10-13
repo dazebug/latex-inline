@@ -37,8 +37,8 @@ const PLACEHOLDER = String.fromCodePoint(0x10eeee)
 const INDEX = new Map(DIACRITICS.map((code, index) => [code, index]))
 const MARK = /\p{M}/u
 const SPACE = /^\s+$/u
-// The reply's bullet, which the mod draws in its gutter where Claude Code's
-// own gutter is left out of a selection.
+// The reply's bullet, which the mod draws in its gutter on the first line's
+// text row; Claude Code's own gutter is left out of a selection.
 const BULLET = '⏺'
 
 // The most cells one alignment fills, about a selection of four thousand
@@ -153,6 +153,11 @@ function piecesOf(line: string): Piece[] {
     else if (last?.kind === 'space') last.text += grapheme
     else pieces.push({ kind: 'space', text: grapheme })
   }
+  // Count the bullet as the gutter's blank, not as text: on the middle row
+  // of a display formula that opens the reply, it would keep that row from
+  // reading as the formula's.
+  const lead = pieces.find(piece => piece.kind !== 'space')
+  if (lead?.kind === 'char' && lead.text === BULLET) pieces[pieces.indexOf(lead)] = { kind: 'space', text: BULLET }
   return pieces
 }
 
@@ -270,16 +275,16 @@ function align(units: Unit[], shown: Shown[], hasText: readonly boolean[]): Int3
 // picture back as its LaTeX: in place of the picture's text row, its other
 // rows left out, as Claude Code copies a reply it draws itself (the gutter
 // left out, a paragraph's wrapped lines joined). Null when the selection does
-// not read as the reply, or reads as it in more than one way.
+// not read as the reply, reads as it in more than one way, or would lose a
+// formula that sits beside text.
 export function copyAsLatex(selected: string, shown: Shown[]): string | null {
   const lines = selected.split('\n').map(piecesOf)
   const units: Unit[] = []
   const unitOf = lines.map(pieces => pieces.map(() => -1))
   lines.forEach((pieces, line) => {
-    const firstChar = pieces.findIndex(piece => piece.kind !== 'space')
     const alone = pieces.filter(piece => piece.kind !== 'space').length === 1
     pieces.forEach((piece, index) => {
-      if (piece.kind === 'space' || (index === firstChar && piece.kind === 'char' && piece.text === BULLET)) return
+      if (piece.kind === 'space') return
       ;(unitOf[line] as number[])[index] = units.length
       units.push(piece.kind === 'char' ? { line, piece: index, ...piece } : { line, piece: index, ...piece, opens: false, closes: false, alone })
     })
@@ -300,6 +305,9 @@ export function copyAsLatex(selected: string, shown: Shown[]): string | null {
   const chars = units.filter(unit => unit.kind === 'char').length
   const paired = units.filter((unit, k) => unit.kind === 'char' && (placed[k] ?? -1) >= 0).length
   if (paired < chars * 0.8) return null
+  // A run on a line that holds text is the middle row of its picture: one
+  // left unplaced would drop a formula from the copy without a sign.
+  if (units.some((unit, k) => unit.kind === 'run' && hasText[unit.line] === true && (placed[k] ?? -1) < 0)) return null
 
   type Line = { text: string; line: number; first?: number; last?: number; display: boolean }
   const kept: Line[] = []

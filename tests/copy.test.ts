@@ -122,6 +122,20 @@ test("a display formula's own middle row wins over the bottom of a formula above
   expect(copyAsLatex(selected, shown(reply, sizes))).toBe('$\\frac{a}{b}$\n\n$$D$$')
 })
 
+test("a reply that opens with a display formula keeps it, though the reply's bullet sits on its middle row", async () => {
+  const reply = '$$E = mc^2$$\n\nThen text.'
+  const sizes = { 'E = mc^2': { columns: 12, rows: 3 } }
+  const selected = [`${pad(20)}${cells(0, 0, 11)}`, `⏺${pad(19)}${cells(1, 0, 11)}`, `${pad(20)}${cells(2, 0, 11)}`, '', '  Then text.'].join('\n')
+  expect(copyAsLatex(selected, shown(reply, sizes))).toBe('$$E = mc^2$$\n\nThen text.')
+})
+
+test('a picture beside text that the reply cannot place is not dropped from the copy', async () => {
+  // Six cells where the reply's picture of A has four: the copy would lose a
+  // formula, so it is left as Claude Code made it.
+  const reply = 'Area $A$ here.'
+  expect(copyAsLatex(`Area ${cells(0, 0, 5)} here.`, shown(reply, { A: { columns: 4, rows: 1 } }))).toBe(null)
+})
+
 test('a display formula selected alone is copied as its LaTeX', async () => {
   const selected = [0, 1, 2, 3, 4].map(row => `${pad(4)}${cells(row, 0, 22)}`).join('\n')
   expect(copyAsLatex(selected, shown(REPLY))).toBe('$$\\int_0^1 x^2 \\, dx = \\frac{1}{3}$$')
