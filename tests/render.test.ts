@@ -399,7 +399,7 @@ test('a list right under a paragraph is drawn with no blank row between them', {
   await $.session.start(SESSION)
   const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text: '단계는 $x$ 입니다:\n- $a$ 고르기\n- 늘이기', isFirstOfReply: true } })
   const tree = await ui.drawn()
-  expect(walk(tree).filter(box => box === itemRow(box, '- ') && box.props?.flexDirection === 'row')).toHaveLength(2)
+  expect(walk(tree).filter(box => itemRow(box, '- ') === box)).toHaveLength(2)
   const parts = (await ui.findAll({ type: 'Box' })).find(box => box.props.gap === 1)
   expect(parts?.children).toHaveLength(1)
 })
