@@ -544,3 +544,19 @@ test('two portions of a split reply are both kept when the second starts with th
   for (let k = 0; k < 3; k++) await clock.advance(200)
   expect(state.clipboard).toBe([before, '', 'diagram', '', after].join('\n'))
 })
+
+test('two equal portions of a split reply are both kept', { plugins: [OUTER_MERMAID], options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true, clock: false })
+  const clock = mock.clock(on)
+  const state = desk(on)
+  await $.session.start(SESSION)
+  // Read alone, the second portion looks like the first drawn again.
+  const sentence = 'The formula $a$ is useful here and has enough prose to locate this sentence precisely.'
+  await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', requestId: 'reply-1', props: { text: `${sentence}\n\n${MERMAID}\n\n${sentence}`, isFirstOfReply: true } })
+  const line = `The formula ${cells(0, 4)} is useful here and has enough prose to locate this sentence precisely.`
+  const selected = [line, '', '  diagram', '', `  ${line}`].join('\n')
+  state.selected = { text: selected, requestId: 'reply-1' }
+  state.clipboard = selected
+  for (let k = 0; k < 3; k++) await clock.advance(200)
+  expect(state.clipboard).toBe([sentence, '', 'diagram', '', sentence].join('\n'))
+})

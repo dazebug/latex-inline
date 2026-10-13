@@ -220,21 +220,21 @@ type Portion = { text: string; width: number | undefined; isFirstOfReply: boolea
 
 // The replies drawn here with pictures, by the id a selection names its row
 // by, so a copy of one can be read back as the reply: the latest 100, each as
-// the texts drawn under its id, the one drawn last at the end.
+// its latest 16 draws in the order drawn, one object kept per distinct draw.
 //
-// Keep every text drawn, not only the last: a mod above may split a reply
-// around a diagram and hand each side on under the reply's id. Do not take a
-// text another one starts with for an earlier state of it: nothing in a render
-// tells a portion that starts with the one before it from that one grown as
-// the reply streams in.
+// Keep the draws, not one text per reply: a mod above may split a reply
+// around a diagram and hand each side on under the reply's id, and nothing in
+// a render tells a portion from the one before it drawn again, when the two
+// are equal, or grown as the reply streams in, when one starts with the other.
 const drawnReplies = new Map<string, Portion[]>()
 
 function keepDrawn(requestId: string, portion: Portion): void {
-  const portions = (drawnReplies.get(requestId) ?? []).filter(old => old.text !== portion.text)
-  portions.push(portion)
-  if (portions.length > 16) portions.shift()
+  const draws = drawnReplies.get(requestId) ?? []
+  const same = draws.find(old => old.text === portion.text && old.width === portion.width && old.isFirstOfReply === portion.isFirstOfReply)
+  draws.push(same ?? portion)
+  if (draws.length > 16) draws.shift()
   drawnReplies.delete(requestId)
-  drawnReplies.set(requestId, portions)
+  drawnReplies.set(requestId, draws)
   const oldest = drawnReplies.keys().next().value
   if (drawnReplies.size > 100 && oldest !== undefined) drawnReplies.delete(oldest)
 }
@@ -265,13 +265,18 @@ function readAs(text: string, portions: Portion[]): string | null {
 
 // The selection's text with its pictures back as LaTeX, or null when it is
 // not one reply drawn here or does not read as it. It is read first as the
-// texts no other text starts with, the reply as it stands once streamed in,
-// and when that fails as every text kept.
+// distinct texts drawn that no other one starts with, each where it was last
+// drawn: the reply as it stands once streamed in. When that fails, as every
+// draw kept, so a portion drawn twice, or one starting with another, counts.
 function latexOf(selected: Selected): string | null {
-  const portions = selected.requestId === undefined ? undefined : drawnReplies.get(selected.requestId)
-  if (portions === undefined) return null
-  const latest = portions.filter(portion => !portions.some(other => other !== portion && other.text.startsWith(portion.text)))
-  return readAs(selected.text, latest) ?? (latest.length < portions.length ? readAs(selected.text, portions) : null)
+  const draws = selected.requestId === undefined ? undefined : drawnReplies.get(selected.requestId)
+  if (draws === undefined) return null
+  const latest = draws.filter(
+    (draw, at) =>
+      draws.every((other, later) => later <= at || other.text !== draw.text) &&
+      !draws.some(other => other.text !== draw.text && other.text.startsWith(draw.text)),
+  )
+  return readAs(selected.text, latest) ?? (latest.length < draws.length ? readAs(selected.text, draws) : null)
 }
 
 // Replies converted for the text style, by width and text: every redraw
