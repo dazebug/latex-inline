@@ -373,25 +373,29 @@ const NESTED_ITEM = [
   '2. **둘째.** 첫 층뿐입니다.',
 ].join('\n')
 
-test("the blocks under a list item are drawn in the item's column", { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+test('the blocks under a list item are drawn indented to its text, with the blank rows the reply has', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
   engine(on, { pictures: true })
   await $.session.start(SESSION)
   const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text: NESTED_ITEM, isFirstOfReply: true } })
   const tree = await ui.drawn()
-  const first = walk(itemRow(tree, '1. '))
-  expect(first.filter(element => element.type === 'Image').map(image => image.props?.alt)).toEqual(['W', 'W = U\\Sigma V^\\top', 'U', 'xU', 'V^\\top'])
-  expect(first.filter(element => element.type === 'Markdown').map(markdown => markdown.props?.text)).toEqual(['곧 고르고 돌리는 것입니다.'])
-  expect(first.filter(element => element.type === 'Text' && /^\n*- $/.test(textOf(element)))).toHaveLength(2)
-  expect(walk(itemRow(tree, '2. ')).filter(element => element.type === 'Image' || element.type === 'Markdown')).toEqual([])
-})
-
-test('a block under a list item keeps the blank line above it, or its absence', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
-  engine(on, { pictures: true })
-  await $.session.start(SESSION)
-  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text: NESTED_ITEM, isFirstOfReply: true } })
-  const column = itemRow(await ui.drawn(), '1. ')?.children?.[1] as Drawn | undefined
-  // The first line, then the formula, the paragraph, the list right under it and the last paragraph.
-  expect((column?.children ?? []).map(child => (child as Drawn).props?.marginTop ?? 0)).toEqual([0, 1, 1, 0, 1])
+  const first = itemRow(tree, '1. ')
+  const rows = (walk(tree).find(box => box.children?.includes(first))?.children ?? []) as Drawn[]
+  // Each row's indent, the blank rows above it, and its marker or what it draws.
+  const shown = (row: Drawn) => {
+    const head = row.children?.[0] as Drawn | undefined
+    if (head?.type === 'Text') return textOf(head).trim()
+    const drawn = walk(row).filter(element => element.type === 'Image' || element.type === 'Markdown')
+    return drawn.map(element => element.props?.alt ?? element.props?.text).join(' ')
+  }
+  expect(rows.map(row => [row.props?.marginLeft ?? 0, row.props?.marginTop ?? 0, shown(row)])).toEqual([
+    [0, 0, '1.'],
+    [3, 1, 'W = U\\Sigma V^\\top'],
+    [3, 1, 'U'],
+    [3, 0, '-'],
+    [3, 0, '-'],
+    [3, 1, '곧 고르고 돌리는 것입니다.'],
+    [0, 0, '2.'],
+  ])
 })
 
 test('a list right under a paragraph is drawn with no blank row between them', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
@@ -421,4 +425,24 @@ test("a nested item's bullet measures its first line in the item's column", { op
   const text = `1. $x$ 위\n   - ${'b'.repeat(28)} $y$`
   const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', viewport: { columns: 40, rows: 24 }, props: { text, isFirstOfReply: true } })
   expect((await ui.findAll({ type: 'Text', text: /^\n*(\d+\.|-) $/ })).map(mark => mark.text)).toEqual(['\n1. ', '- '])
+})
+
+test('a list nested many levels deep is still drawn', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true })
+  await $.session.start(SESSION)
+  // Claude Code refuses a drawing nested deeper than 32 elements.
+  const levels = Array.from({ length: 12 }, (_, depth) => depth)
+  const text = levels.map(depth => `${'  '.repeat(depth)}- 단계 $x_${depth}$`).join('\n')
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } })
+  expect((await ui.findAll({ type: 'Image' })).map(image => image.props.alt)).toEqual(levels.map(depth => `x_${depth}`))
+})
+
+test('an item that starts with a list has its number on a row of its own, as Claude Code draws it', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true, pictureRows: 3 })
+  await $.session.start(SESSION)
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text: '1. - $x$\n2. 둘째', isFirstOfReply: true } })
+  const tree = await ui.drawn()
+  expect(walk(itemRow(tree, '1. ')).some(element => element.type === 'Image')).toBe(false)
+  expect(itemRow(tree, '- ')?.props?.marginLeft).toBe(3)
+  expect((await ui.findAll({ type: 'Text', text: /^\n*(\d+\.|-) $|⏺/ })).map(mark => mark.text)).toEqual(['⏺', '1. ', '\n- ', '2. '])
 })

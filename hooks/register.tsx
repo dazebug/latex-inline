@@ -397,8 +397,9 @@ export const register: Register = (on, options) => {
         return { columns: boxes.reduce((sum, box) => sum + box.columns, 0), rows: Math.max(1, ...boxes.map(box => box.rows)) }
       })
 
-    // A block drawn `columns` wide, the reply's own or one inside a list item.
-    const draw = (block: Block, columns: number): RenderElement => {
+    // A block of the reply, or one under a list item, drawn in the column it
+    // is placed in.
+    const draw = (block: Block): RenderElement => {
       if (block.kind === 'para') return flow(block.tokens)
       if (block.kind === 'display') {
         return (
@@ -407,40 +408,40 @@ export const register: Register = (on, options) => {
           </Box>
         )
       }
-      if (block.kind === 'list') return list(block, columns)
+      if (block.kind === 'list') return <Box flexDirection="column">{listRows(block, 0, 0)}</Box>
       const pieces = (nested.get(block) ?? []).map(text => <Markdown text={text} />)
       return pieces.length === 1 && pieces[0] ? pieces[0] : <Box flexDirection="column" gap={1}>{pieces}</Box>
     }
 
-    // Draw the number at the top of its item and move it down to the first
-    // line's text row: centered against the whole item, it would drift into
-    // the middle of an item that wraps onto several lines. What is indented
-    // under the first line goes in the item's column, a blank row above each
-    // block that has a blank line above it.
-    const list = (block: ListBlock, columns: number): RenderElement => (
-      <Box flexDirection="column">
-        {block.items.map(item => {
-          const inner = columns - cellWidth(item.prefix)
-          const children = (item.blocks ?? []).map((child, index) => (
-            <Box flexDirection="column" marginTop={child.joined || (index === 0 && item.tokens.length === 0) ? 0 : 1}>
-              {draw(child, inner)}
-            </Box>
-          ))
-          return (
-            <Box flexDirection="row" alignItems="flex-start" marginTop={item.spaced ? 1 : 0}>
-              <Text>{onTextRow(item.prefix, firstLineRows(groupBoxes(item.tokens), inner))}</Text>
-              {children.length === 0 ? (
-                flow(item.tokens)
-              ) : (
-                <Box flexDirection="column" flexGrow={1} flexShrink={1}>
-                  {item.tokens.length > 0 ? [flow(item.tokens), ...children] : children}
-                </Box>
-              )}
-            </Box>
+    // The rows of a list `indent` columns in, all in one column however deep
+    // the list goes, since Claude Code refuses a drawing nested too deep: each
+    // item's first line beside its marker, then each block under it indented
+    // to the item's text, a blank row above each block with a blank line
+    // above it. An item that starts with another kind of block has its marker
+    // on a row of its own, as Claude Code draws it. The number is drawn at the
+    // top of its row and moved down to the first line's text row: centered
+    // against the whole item, it would drift into the middle of an item that
+    // wraps onto several lines.
+    const listRows = (block: ListBlock, indent: number, marginTop: number): RenderElement[] =>
+      block.items.flatMap((item, index) => {
+        const inner = indent + cellWidth(item.prefix)
+        const rows = [
+          <Box flexDirection="row" alignItems="flex-start" marginLeft={indent} marginTop={index === 0 ? marginTop : item.spaced ? 1 : 0}>
+            <Text>{onTextRow(item.prefix, firstLineRows(groupBoxes(item.tokens), lineWidth - inner))}</Text>
+            {flow(item.tokens)}
+          </Box>,
+        ]
+        for (const [place, child] of (item.blocks ?? []).entries()) {
+          const top = child.joined || (place === 0 && item.tokens.length === 0) ? 0 : 1
+          if (child.kind === 'list') rows.push(...listRows(child, inner, top))
+          else rows.push(
+            <Box flexDirection="column" marginLeft={inner} marginTop={top}>
+              {draw(child)}
+            </Box>,
           )
-        })}
-      </Box>
-    )
+        }
+        return rows
+      })
 
     const first = renderBlocks[0]
     let firstRows = 1
@@ -517,7 +518,7 @@ export const register: Register = (on, options) => {
         addDirect(<Markdown text={block.text} />, block.joined === true)
         continue
       }
-      addDirect(draw(block, lineWidth), block.joined === true)
+      addDirect(draw(block), block.joined === true)
     }
     flushDirect()
     return <Box flexDirection="column">{rows}</Box>
