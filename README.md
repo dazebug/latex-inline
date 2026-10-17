@@ -14,6 +14,7 @@ It works beside [Mermaid Inline](https://github.com/dazebug/mermaid-inline): in 
 
 - Claude Code 2.1.287 or later, in a terminal session
 - For pictures: Ghostty, cmux or kitty, not inside tmux, which does not pass the pictures through; and Node.js 18 or later with npm on your `PATH`: Claude Code uses npm to install the renderer's packages when it installs the plugin, and the plugin runs its renderer with `node`
+- For [tooltips](#tooltips): Claude Code 2.1.296 or later in fullscreen mode (`"tui": "fullscreen"`), whose hover shows their cards
 - macOS or Linux
 
 The Unicode text needs nothing beyond Claude Code. In the Desktop app, VS Code and `claude -p`, the plugin stays out of the way: replies are drawn as usual.
@@ -54,7 +55,7 @@ This works for a selection inside one reply. A selection that spans several mess
 
 ## Tooltips
 
-MathJax's action extension writes an explanation on part of a formula: `\texttip{part}{explanation}` in words, `\mathtip{part}{formula}` as math. In a browser MathJax shows it while the pointer rests on the part. Here, in fullscreen mode, rest the pointer anywhere on the formula's picture and a card above it shows all of the formula's explanations, each beside the part it explains, a `\mathtip` formula drawn as a picture. An explanation of the whole formula stands alone in the card. The card moves left where it would pass the reply's right edge, and goes once the pointer leaves the formula.
+MathJax's action extension puts an explanation on part of a formula: `\texttip{part}{explanation}` in words, `\mathtip{part}{formula}` as math. In a browser MathJax shows it while the pointer rests on the part. Here, in fullscreen mode, rest the pointer anywhere on the formula's picture and a card above it shows all of the formula's explanations, each beside the part it explains, a `\mathtip` formula drawn as a picture. An explanation of the whole formula stands alone in the card. The card moves left where it would pass the reply's right edge, and goes once the pointer leaves the formula.
 
 ![A reply naming Euler's identity as the most beautiful equation. The pointer rests on the display formula e^(iπ) + 1 = 0, and a card above it says what e, i, π, 1 and 0 stand for; then it rests on e^(iθ) in the next sentence, and a card shows cos θ + i sin θ drawn as math](docs/tooltips.gif)
 
