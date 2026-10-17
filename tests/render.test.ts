@@ -695,3 +695,12 @@ test('a math tooltip too wide for the flow is written as Unicode text', { option
   expect(walk(card).some(element => element.type === 'Image')).toBe(false)
   expect(linesOf(card)).toEqual([' y² '])
 })
+
+test('a math tooltip with nothing to write in place of its picture adds no card', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true, pictureColumns: 40 })
+  await $.session.start(SESSION)
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', viewport: { ...FULLSCREEN, columns: 40 }, props: { text: '$\\mathtip{x}{\\quad}$', isFirstOfReply: true } })
+  const tree = await ui.drawn()
+  expect(cardsOf(tree)).toEqual([])
+  expect((await ui.findAll({ type: 'Image' })).map(image => image.props.alt)).toEqual(['\\mathtip{x}{\\quad}'])
+})

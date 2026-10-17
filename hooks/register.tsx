@@ -532,6 +532,8 @@ export const register: Register = (on, options) => {
         const words = wrapWords('text' in tip ? tip.text : (plainOf(tip.tex) ?? tip.tex), room)
         return [...above, ...words.map((text, n) => ({ head: n === 0 ? head : ' '.repeat(indent), text }))]
       })
+      // A formula written as text can come to nothing, as \quad does.
+      if (lines.length === 0) return undefined
       const inner = Math.max(...lines.map(line => cellWidth(line.head) + ('entry' in line ? line.entry.columns : cellWidth(line.text))))
       let rows = 0
       const drawn = lines.map(line => {
