@@ -502,47 +502,56 @@ export const register: Register = (on, options) => {
     const { Box, Image, Markdown, Text } = $.ui.resolve(e)
 
     // The card a formula's tooltips show in while the pointer rests on its
-    // picture: each explanation beside the part it explains, with no part for
-    // one that explains the whole formula, words wrapped to the room the
-    // formula has and a formula drawn as a picture. It goes above the picture,
-    // out of the flow, moved left as far as it must to end within the room.
-    // Every cell it covers is a character it draws: padding would leave the
-    // text beneath it showing through. None when no tooltip has anything to say.
+    // picture: each explanation beside the part it explains, or under it,
+    // indented, when the part would take more than a third of a line; no part
+    // for one that explains the whole formula. Every line keeps within the
+    // room the formula has, up to CARD_COLUMNS: words wrap and a formula too
+    // wide to draw there is written as Unicode text. The card goes above the
+    // picture, out of the flow, moved left as far as it must to end within the
+    // room. Every cell it covers is a character it draws: padding would leave
+    // the text beneath it showing through. None when no tooltip has anything
+    // to say.
     const card = (tipped: Tipped, size: Picture, place: Place) => {
-      type Item = { label: string; text: string } | { label: string; tex: string; entry: Picture }
-      const items = tipped.tips.flatMap((tip, k): Item[] => {
-        const label = k === 0 && tipped.isWhole ? '' : (plainOf(tip.base) ?? tip.base)
-        if ('text' in tip) return tip.text === '' ? [] : [{ label, text: tip.text }]
-        if (tip.tex === '') return []
-        const entry = pictures.get(keyOf(jobOf(tip.tex, false)))
-        return [isPicture(entry) ? { label, tex: tip.tex, entry } : { label, text: plainOf(tip.tex) ?? tip.tex }]
-      })
-      if (items.length === 0) return undefined
-      const labelWidth = Math.max(0, ...items.map(item => cellWidth(item.label)))
-      const gap = labelWidth > 0 ? 2 : 0
-      const room = Math.max(1, Math.min(CARD_COLUMNS, place.columns) - 4 - labelWidth - gap)
-      const bodies = items.map(item => ('entry' in item ? item : { label: item.label, lines: wrapWords(item.text, room) }))
-      const bodyWidth = Math.max(0, ...bodies.map(body => ('entry' in body ? body.entry.columns : Math.max(0, ...body.lines.map(cellWidth)))))
-      const head = (label: string) => ` ${padCells(label, labelWidth)}${' '.repeat(gap)}`
-      let rows = 0
-      const lines = bodies.flatMap(body => {
-        if (!('entry' in body)) {
-          rows += body.lines.length
-          return body.lines.map((line, n) => <Text>{`${head(n === 0 ? body.label : '')}${padCells(line, bodyWidth)} `}</Text>)
+      const content = Math.max(1, Math.min(CARD_COLUMNS, place.columns) - 4)
+      const tips = tipped.tips
+        .map((tip, k) => ({ tip, label: k === 0 && tipped.isWhole ? '' : (plainOf(tip.base) ?? tip.base) }))
+        .filter(({ tip }) => ('text' in tip ? tip.text : tip.tex) !== '')
+      if (tips.length === 0) return undefined
+      const labelWidth = Math.max(0, ...tips.map(({ label }) => cellWidth(label)))
+      const isBeside = labelWidth + 2 <= Math.floor(content / 3)
+      type Line = { head: string; text: string } | { head: string; tex: string; entry: Picture }
+      const lines = tips.flatMap(({ tip, label }): Line[] => {
+        const indent = isBeside ? (labelWidth > 0 ? labelWidth + 2 : 0) : label === '' ? 0 : 2
+        const room = Math.max(1, content - indent)
+        const above = isBeside ? [] : wrapWords(label, content).map(text => ({ head: '', text }))
+        const head = isBeside && labelWidth > 0 ? `${padCells(label, labelWidth)}  ` : ' '.repeat(indent)
+        if ('tex' in tip) {
+          const entry = pictures.get(keyOf(jobOf(tip.tex, false)))
+          if (isPicture(entry) && entry.columns <= room) return [...above, { head, tex: tip.tex, entry }]
         }
-        const { entry } = body
+        const words = wrapWords('text' in tip ? tip.text : (plainOf(tip.tex) ?? tip.tex), room)
+        return [...above, ...words.map((text, n) => ({ head: n === 0 ? head : ' '.repeat(indent), text }))]
+      })
+      const inner = Math.max(...lines.map(line => cellWidth(line.head) + ('entry' in line ? line.entry.columns : cellWidth(line.text))))
+      let rows = 0
+      const drawn = lines.map(line => {
+        if (!('entry' in line)) {
+          rows += 1
+          return <Text>{` ${padCells(line.head + line.text, inner)} `}</Text>
+        }
+        const { entry } = line
         rows += entry.rows
         const middle = Math.floor((entry.rows - 1) / 2)
         const column = (text: (row: number) => string) => Array.from({ length: entry.rows }, (_, row) => text(row)).join('\n')
-        return [
+        return (
           <Box flexDirection="row">
-            <Text>{column(row => head(row === middle ? body.label : ''))}</Text>
-            <Image source={{ file: entry.file, format: 'png' }} columns={entry.columns} rows={entry.rows} alt={body.tex} />
-            <Text>{column(() => ' '.repeat(bodyWidth - entry.columns + 1))}</Text>
-          </Box>,
-        ]
+            <Text>{column(row => ` ${row === middle ? line.head : ' '.repeat(cellWidth(line.head))}`)}</Text>
+            <Image source={{ file: entry.file, format: 'png' }} columns={entry.columns} rows={entry.rows} alt={line.tex} />
+            <Text>{column(() => ' '.repeat(inner - cellWidth(line.head) - entry.columns + 1))}</Text>
+          </Box>
+        )
       })
-      const width = labelWidth + gap + bodyWidth + 4
+      const width = inner + 4
       const x = place.x ?? Math.max(0, Math.floor((place.columns - size.columns) / 2))
       return (
         <Box
@@ -556,7 +565,7 @@ export const register: Register = (on, options) => {
           borderStyle="round"
           borderDimColor
         >
-          {lines}
+          {drawn}
         </Box>
       )
     }

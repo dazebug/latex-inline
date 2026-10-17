@@ -2,21 +2,23 @@ import type { On, RenderPropsOf } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
 import { DIACRITICS } from '../hooks/copy'
+import { cellWidth } from '../hooks/support'
 
 const SESSION = { cwd: '/tmp', surface: 'terminal' as const, isInteractive: true }
 const REPLY = '저는 $Q \\ge 0$이 맞다고 봅니다.'
 
 // The engine beneath the plugin: no terminal variables, default settings, a
 // picture cache that holds every formula when `pictures` is set, each picture
-// `pictureRows` rows tall, and a message drawing that shows the text it was
-// handed, or an engine element when `engineElement` is set; `observe` sees
-// the props of each drawing.
+// `pictureColumns` wide and `pictureRows` tall, and a message drawing that
+// shows the text it was handed, or an engine element when `engineElement` is
+// set; `observe` sees the props of each drawing.
 function engine(
   on: On,
   options: {
     observe?: (props: RenderPropsOf['AssistantMessage']) => void
     pictures?: boolean
     pictureRows?: number
+    pictureColumns?: number
     engineElement?: boolean
     clock?: false
   } = {},
@@ -27,7 +29,7 @@ function engine(
   on('command.register', async ($, e) => ({ value: { command: e.name } }))
   if (options.clock !== false) on('clock.every', async () => ({ value: undefined }))
   on('fs.exists', async () => ({ value: options.pictures === true }))
-  on('fs.read', async () => ({ value: JSON.stringify({ key: 'fixture', file: '/tmp/x.png', columns: 4, rows: options.pictureRows ?? 1 }) }))
+  on('fs.read', async () => ({ value: JSON.stringify({ key: 'fixture', file: '/tmp/x.png', columns: options.pictureColumns ?? 4, rows: options.pictureRows ?? 1 }) }))
   on('ui.render', { component: 'AssistantMessage' }, async ($, e) => {
     options.observe?.(e.props)
     if (options.engineElement) return { type: 'engine', ref: 1 } as never
@@ -668,4 +670,28 @@ test('a tooltip with nothing to say adds nothing to the card', { options: { mode
   const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', viewport: FULLSCREEN, props: { text: '식 $\\texttip{a}{ } + \\texttip{b}{bee}$ 와 $\\texttip{x}{}$ 입니다.', isFirstOfReply: true } })
   const cards = cardsOf(await ui.drawn())
   expect(cards.map(linesOf)).toEqual([[' b  bee ']])
+})
+
+// A card's line: its content between a space on each side, padded to `width`.
+const cardLine = (content: string, width: number) => ` ${content}${' '.repeat(width - cellWidth(content))} `
+
+test('a part too long to sit beside its explanation goes above it, and the card keeps within the flow', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true })
+  await $.session.start(SESSION)
+  // At 40 columns the flow has 37, a card's lines 33. The part, as Unicode
+  // text, is 39 wide.
+  const text = '$\\texttip{\\frac{a_1+a_2+a_3+a_4}{b_1+b_2+b_3+b_4}}{ratio} + 1$'
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', viewport: { ...FULLSCREEN, columns: 40 }, props: { text, isFirstOfReply: true } })
+  const [card] = cardsOf(await ui.drawn())
+  expect(linesOf(card)).toEqual([cardLine('(a₁ + a₂ + a₃ + a₄)/(b₁ + b₂ + b₃', 33), cardLine('+ b₄)', 33), cardLine('  ratio', 33)])
+  expect(card?.props).toMatchObject({ width: 37, left: 0 })
+})
+
+test('a math tooltip too wide for the flow is written as Unicode text', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true, pictureColumns: 40 })
+  await $.session.start(SESSION)
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', viewport: { ...FULLSCREEN, columns: 40 }, props: { text: '$\\mathtip{x}{y^2}$', isFirstOfReply: true } })
+  const [card] = cardsOf(await ui.drawn())
+  expect(walk(card).some(element => element.type === 'Image')).toBe(false)
+  expect(linesOf(card)).toEqual([' y² '])
 })
