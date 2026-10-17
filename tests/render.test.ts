@@ -2,21 +2,23 @@ import type { On, RenderPropsOf } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
 import { DIACRITICS } from '../hooks/copy'
+import { cellWidth } from '../hooks/support'
 
 const SESSION = { cwd: '/tmp', surface: 'terminal' as const, isInteractive: true }
 const REPLY = '저는 $Q \\ge 0$이 맞다고 봅니다.'
 
 // The engine beneath the plugin: no terminal variables, default settings, a
 // picture cache that holds every formula when `pictures` is set, each picture
-// `pictureRows` rows tall, and a message drawing that shows the text it was
-// handed, or an engine element when `engineElement` is set; `observe` sees
-// the props of each drawing.
+// `pictureColumns` wide and `pictureRows` tall, and a message drawing that
+// shows the text it was handed, or an engine element when `engineElement` is
+// set; `observe` sees the props of each drawing.
 function engine(
   on: On,
   options: {
     observe?: (props: RenderPropsOf['AssistantMessage']) => void
     pictures?: boolean
     pictureRows?: number
+    pictureColumns?: number
     engineElement?: boolean
     clock?: false
   } = {},
@@ -27,7 +29,7 @@ function engine(
   on('command.register', async ($, e) => ({ value: { command: e.name } }))
   if (options.clock !== false) on('clock.every', async () => ({ value: undefined }))
   on('fs.exists', async () => ({ value: options.pictures === true }))
-  on('fs.read', async () => ({ value: JSON.stringify({ key: 'fixture', file: '/tmp/x.png', columns: 4, rows: options.pictureRows ?? 1 }) }))
+  on('fs.read', async () => ({ value: JSON.stringify({ key: 'fixture', file: '/tmp/x.png', columns: options.pictureColumns ?? 4, rows: options.pictureRows ?? 1 }) }))
   on('ui.render', { component: 'AssistantMessage' }, async ($, e) => {
     options.observe?.(e.props)
     if (options.engineElement) return { type: 'engine', ref: 1 } as never
@@ -351,7 +353,18 @@ test('the math section asks for prose without LaTeX commands, which only math is
   expect(math?.text).toContain('\\enquote')
 })
 
-type Drawn = { type?: string; props?: Record<string, unknown>; children?: unknown[] }
+test('the math section tells Claude how to put a tooltip on a symbol', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on)
+  on('prompt.compose', async () => ({ sections: [] }))
+  await $.session.start(SESSION)
+  const facts = { model: 'claude-opus-5-5', promptModel: 'claude-opus-5-5', surfaces: ['terminal' as const], tools: [], outputStyle: null, traits: [] }
+  const { sections } = await $.prompt.compose(facts)
+  const math = sections.find(section => section.id === 'latex-inline:math')
+  expect(math?.text).toContain('\\texttip{')
+  expect(math?.text).toContain('\\mathtip{')
+})
+
+type Drawn = { type?: string; props?: Record<string, unknown>; hover?: Record<string, unknown>; children?: unknown[] }
 
 // Every element of a drawn tree, depth first.
 function walk(node: unknown): Drawn[] {
@@ -559,4 +572,135 @@ test('two equal portions of a split reply are both kept', { plugins: [OUTER_MERM
   state.clipboard = selected
   for (let k = 0; k < 3; k++) await clock.advance(200)
   expect(state.clipboard).toBe([sentence, '', 'diagram', '', sentence].join('\n'))
+})
+
+const FULLSCREEN = { columns: 80, rows: 24, isFullscreen: true }
+const TIPPED = 'E = \\texttip{m}{질량} \\texttip{c}{광속}^2'
+
+// The tooltip cards of a drawn tree: Boxes kept hidden until the pointer
+// rests on their formula.
+function cardsOf(tree: unknown): Drawn[] {
+  return walk(tree).filter(element => element.type === 'Box' && element.props?.display === 'none' && element.hover?.display === 'flex')
+}
+
+const linesOf = (card: Drawn | undefined) => walk(card).filter(element => element.type === 'Text').map(textOf)
+
+test('in fullscreen a formula with tooltips has a card with them, shown while the pointer is on it', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true })
+  await $.session.start(SESSION)
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', viewport: FULLSCREEN, props: { text: `식 $${TIPPED}$ 입니다.`, isFirstOfReply: true } })
+  const tree = await ui.drawn()
+  const cards = cardsOf(tree)
+  expect(cards).toHaveLength(1)
+  // The card is placed above the picture, out of the flow, in a keyed Box
+  // that holds the picture: the pointer anywhere on the formula shows it.
+  const scope = walk(tree).find(element => element.children?.includes(cards[0]))
+  expect(typeof scope?.props?.key).toBe('string')
+  expect(scope?.children?.[0]).toMatchObject({ type: 'Image', props: { alt: TIPPED } })
+  expect(cards[0]?.props).toMatchObject({ position: 'absolute', top: -4, left: 0 })
+  expect(linesOf(cards[0])).toEqual([' m  질량 ', ' c  광속 '])
+})
+
+test('on the main screen, where the pointer is not followed, a formula with tooltips is its picture alone', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true })
+  await $.session.start(SESSION)
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', viewport: { ...FULLSCREEN, isFullscreen: false }, props: { text: `식 $${TIPPED}$ 입니다.`, isFirstOfReply: true } })
+  const tree = await ui.drawn()
+  expect(cardsOf(tree)).toEqual([])
+  expect(walk(tree).some(element => element.props?.key !== undefined)).toBe(false)
+  expect((await ui.findAll({ type: 'Image' })).map(image => image.props.alt)).toEqual([TIPPED])
+})
+
+test("a math tooltip's card holds the tooltip drawn as a picture", { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true })
+  await $.session.start(SESSION)
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', viewport: FULLSCREEN, props: { text: '제곱 $\\mathtip{x^2}{x \\cdot x}$ 입니다.', isFirstOfReply: true } })
+  const [card] = cardsOf(await ui.drawn())
+  expect(walk(card).filter(element => element.type === 'Image').map(element => element.props?.alt)).toEqual(['x \\cdot x'])
+  expect(card?.props).toMatchObject({ top: -3 })
+})
+
+test('a card that would pass the right edge is moved left to fit', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true })
+  await $.session.start(SESSION)
+  // At 40 columns the text gets 37. The formula starts at column 29 and its
+  // card, one tooltip over the whole formula, is 13 wide: 5 too many.
+  const text = `${'a'.repeat(28)} $\\texttip{x}{explained}$`
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', viewport: { ...FULLSCREEN, columns: 40 }, props: { text, isFirstOfReply: true } })
+  const [card] = cardsOf(await ui.drawn())
+  expect(linesOf(card)).toEqual([' explained '])
+  expect(card?.props).toMatchObject({ left: -5 })
+})
+
+test("a long tooltip wraps at the reply's width", { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true })
+  await $.session.start(SESSION)
+  const text = `$\\texttip{x}{${'word '.repeat(12).trim()}}$`
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', viewport: { ...FULLSCREEN, columns: 40 }, props: { text, isFirstOfReply: true } })
+  const [card] = cardsOf(await ui.drawn())
+  const line = ` ${'word '.repeat(6).trim()} `
+  expect(linesOf(card)).toEqual([line, line])
+})
+
+test('/latex-inline says where tooltips show: in fullscreen mode only', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on)
+  await $.session.start(SESSION)
+  const run = (isFullscreen: boolean) => $.command.run({ command: 'latex-inline', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen, columns: 80 } })
+  expect((await run(true)).text).toContain('Tooltips: in a card while the pointer rests on the formula')
+  expect((await run(false)).text).toContain('Tooltips: not shown outside fullscreen mode')
+})
+
+test('a mouse copy of a formula with tooltips gets its LaTeX as written', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true, clock: false })
+  const clock = mock.clock(on)
+  const state = desk(on)
+  await $.session.start(SESSION)
+  const text = '넓이 $\\texttip{A}{area}$는 크다.'
+  await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', requestId: 'reply-1', viewport: FULLSCREEN, props: { text, isFirstOfReply: true } })
+  const selected = `넓이 ${cells(0, 4)}는 크다.`
+  state.selected = { text: selected, requestId: 'reply-1' }
+  state.clipboard = selected
+  for (let k = 0; k < 3; k++) await clock.advance(200)
+  expect(state.copied).toEqual([text])
+})
+
+test('a tooltip with nothing to say adds nothing to the card', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true })
+  await $.session.start(SESSION)
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', viewport: FULLSCREEN, props: { text: '식 $\\texttip{a}{ } + \\texttip{b}{bee}$ 와 $\\texttip{x}{}$ 입니다.', isFirstOfReply: true } })
+  const cards = cardsOf(await ui.drawn())
+  expect(cards.map(linesOf)).toEqual([[' b  bee ']])
+})
+
+// A card's line: its content between a space on each side, padded to `width`.
+const cardLine = (content: string, width: number) => ` ${content}${' '.repeat(width - cellWidth(content))} `
+
+test('a part too long to sit beside its explanation goes above it, and the card keeps within the flow', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true })
+  await $.session.start(SESSION)
+  // At 40 columns the flow has 37, a card's lines 33. The part, as Unicode
+  // text, is 39 wide.
+  const text = '$\\texttip{\\frac{a_1+a_2+a_3+a_4}{b_1+b_2+b_3+b_4}}{ratio} + 1$'
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', viewport: { ...FULLSCREEN, columns: 40 }, props: { text, isFirstOfReply: true } })
+  const [card] = cardsOf(await ui.drawn())
+  expect(linesOf(card)).toEqual([cardLine('(a₁ + a₂ + a₃ + a₄)/(b₁ + b₂ + b₃', 33), cardLine('+ b₄)', 33), cardLine('  ratio', 33)])
+  expect(card?.props).toMatchObject({ width: 37, left: 0 })
+})
+
+test('a math tooltip too wide for the flow is written as Unicode text', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true, pictureColumns: 40 })
+  await $.session.start(SESSION)
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', viewport: { ...FULLSCREEN, columns: 40 }, props: { text: '$\\mathtip{x}{y^2}$', isFirstOfReply: true } })
+  const [card] = cardsOf(await ui.drawn())
+  expect(walk(card).some(element => element.type === 'Image')).toBe(false)
+  expect(linesOf(card)).toEqual([' y² '])
+})
+
+test('a math tooltip with nothing to write in place of its picture adds no card', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true, pictureColumns: 40 })
+  await $.session.start(SESSION)
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', viewport: { ...FULLSCREEN, columns: 40 }, props: { text: '$\\mathtip{x}{\\quad}$', isFirstOfReply: true } })
+  const tree = await ui.drawn()
+  expect(cardsOf(tree)).toEqual([])
+  expect((await ui.findAll({ type: 'Image' })).map(image => image.props.alt)).toEqual(['\\mathtip{x}{\\quad}'])
 })

@@ -405,6 +405,16 @@ class Reader {
     }
     if (TEXT.has(name)) return [atom('ord', textOf(this.raw()))]
     if (STYLES.has(name)) return [group(this.argument(script), script)]
+    // A tooltip shows the part it explains: no pointer reaches text. Its
+    // explanation is skipped as one argument, as tips.ts reads it: a command
+    // without braces is the whole command name, not its backslash alone.
+    if (name === 'texttip' || name === 'mathtip') {
+      const part = group(this.argument(script), script)
+      this.skipSpaces()
+      if (this.s[this.i] !== '\\') this.raw()
+      else this.i += 1 + (/^[A-Za-z]+/.exec(this.s.slice(this.i + 1))?.[0].length ?? (this.s[this.i + 1] === undefined ? 0 : 1))
+      return [part]
+    }
     const kind = CLASSES[name]
     if (kind) return [atom(kind, render(this.argument(script), script))]
     const font = FONTS[name]
@@ -528,7 +538,7 @@ function escapeMarkdown(text: string): string {
 }
 
 // A formula as Unicode, or null when it can't be converted.
-function plainOf(tex: string): string | null {
+export function plainOf(tex: string): string | null {
   try {
     return texToUnicode(tex)
   } catch {

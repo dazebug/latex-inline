@@ -14,6 +14,7 @@ It works beside [Mermaid Inline](https://github.com/dazebug/mermaid-inline): in 
 
 - Claude Code 2.1.287 or later, in a terminal session
 - For pictures: Ghostty, cmux or kitty, not inside tmux, which does not pass the pictures through; and Node.js 18 or later with npm on your `PATH`: Claude Code uses npm to install the renderer's packages when it installs the plugin, and the plugin runs its renderer with `node`
+- For [tooltips](#tooltips): Claude Code 2.1.296 or later in fullscreen mode (`"tui": "fullscreen"`), whose hover shows their cards
 - macOS or Linux
 
 The Unicode text needs nothing beyond Claude Code. In the Desktop app, VS Code and `claude -p`, the plugin stays out of the way: replies are drawn as usual.
@@ -36,6 +37,7 @@ The plugin adds a short section to Claude's system prompt, only in sessions wher
 - Math is drawn as pictures in paragraphs and list items. Math inside tables, headings and block quotes, where a picture can't go, is written as Unicode text. Math inside code spans and code blocks is left as written.
 - `\(...\)` and `\[...\]` work too. MathJax supports the AMS environments (`aligned`, `cases`, `pmatrix`, ...), and `\text{}` takes any script, including Hangul and kana.
 - Commands MathJax lacks are drawn too: `\argmax`, `\argmin`, `\E`, `\R` and the other blackboard letters, `\norm{}`, `\abs{}`, `\bm{}`, `\mathds{}`, `\1` and `\coloneqq` as usual, and any other unknown command, such as `\softplus`, as its name, the way `\operatorname` draws one.
+- `\texttip{part}{explanation}` and `\mathtip{part}{formula}` put an explanation on part of a formula, shown when the pointer rests on it (see [Tooltips](#tooltips)).
 
 If you turn `teach_claude` off, or want Claude to write LaTeX in every session regardless of the terminal, add this to your `CLAUDE.md`:
 
@@ -50,6 +52,16 @@ In fullscreen mode (`"tui": "fullscreen"` in your settings), select part of a re
 Claude Code makes that copy itself, from the characters on screen, and the cells of a picture hold placeholder characters, not the formula; no plugin can change the copy as it is made. So the plugin follows the selection, and once the clipboard holds exactly the text Claude Code copied from it, puts the same text on the clipboard with LaTeX in place of the pictures. To see that, it reads the clipboard every 200 ms for three seconds after the selection stops changing, then every second until a minute has passed. Anything else on the clipboard, such as what another program copied in the meantime, is left as it is. Set `copy_latex` to `false` to leave every copy as Claude Code makes it.
 
 This works for a selection inside one reply. A selection that spans several messages, and one your terminal makes itself (outside fullscreen mode, or the native selection you make by holding a modifier key), still copies the placeholders. `/copy` copies a whole reply with its LaTeX as Claude wrote it.
+
+## Tooltips
+
+MathJax's action extension puts an explanation on part of a formula: `\texttip{part}{explanation}` in words, `\mathtip{part}{formula}` as math. In a browser MathJax shows it while the pointer rests on the part. Here, in fullscreen mode, rest the pointer anywhere on the formula's picture and a card above it shows all of the formula's explanations, each beside the part it explains, a `\mathtip` formula drawn as a picture. An explanation of the whole formula stands alone in the card. The card moves left where it would pass the reply's right edge, and goes once the pointer leaves the formula.
+
+![A reply naming Euler's identity as the most beautiful equation. The pointer rests on the display formula e^(iπ) + 1 = 0, and a card above it says what e, i, π, 1 and 0 stand for; then it rests on e^(iθ) in the next sentence, and a card shows cos θ + i sin θ drawn as math](docs/tooltips.gif)
+
+*Ghostty with its default font (JetBrains Mono, 13pt); the reply's LaTeX puts `\texttip` on each constant of Euler's identity and `\mathtip` on e^(iθ).*
+
+The section the plugin adds to Claude's system prompt tells Claude how to write them, and to keep what the reader needs in the text, since the card shows in fullscreen mode only. To have Claude explain every symbol of a formula this way, ask for it: "explain each symbol with `\texttip`". Outside fullscreen mode, and in Unicode text, a formula shows its parts without the explanations. `/latex-inline` says whether tooltips show in the session.
 
 ## Configuration
 
@@ -109,6 +121,7 @@ Where pictures can't be shown, each formula is converted to plain text that a te
 - Fractions and roots go on one line, with parentheses where needed: `\frac{1}{1+e^{-x}}` is 1/(1 + e⁻ˣ), `\sqrt{x+1}` is √(x + 1).
 - Spacing follows TeX: binary operators and relations get a space on each side, a leading sign does not.
 - A formula alone in its paragraph is centered.
+- A tooltip (`\texttip`, `\mathtip`) shows only the part it explains.
 
 The result is an approximation: tall structures such as matrices, `cases` and multi-line `aligned` blocks come out on one line, with rows separated by semicolons. A command it doesn't know is shown as written.
 
