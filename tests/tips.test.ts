@@ -50,3 +50,14 @@ test('a longer command, or a tooltip missing an argument, is left as written', a
   expect(readTips('a + \\texttip{x}')).toEqual({ tex: 'a + \\texttip{x}', tips: [], isWhole: false })
   expect(readTips('\\mathtip{x}{y')).toEqual({ tex: '\\mathtip{x}{y', tips: [], isWhole: false })
 })
+
+test('a tooltip spelled inside \\verb or a comment is left as written', async () => {
+  expect(readTips('\\verb|\\texttip{x}{words}| + y')).toEqual({ tex: '\\verb|\\texttip{x}{words}| + y', tips: [], isWhole: false })
+  expect(readTips('x % \\texttip{ignored}\ny+z')).toEqual({ tex: 'x % \\texttip{ignored}\ny+z', tips: [], isWhole: false })
+  // An escaped percent sign starts no comment.
+  expect(readTips('5\\% \\texttip{r}{rate}').tips).toEqual([{ base: 'r', text: 'rate' }])
+})
+
+test('a brace in a comment inside an argument does not end it', async () => {
+  expect(readTips('\\texttip{a % }\n}{b}').tips).toEqual([{ base: 'a % }\n', text: 'b' }])
+})
