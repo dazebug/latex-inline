@@ -2,8 +2,9 @@ import type { EngineInterface, Register, RenderElement } from 'claude-code'
 
 import { copyAsLatex, copyWatcher, shownOf, type Selected, type Shown } from './copy'
 import { glueTokens, parseBlocks, splitMarkdown, splitMarkdownRuns, type Block, type Token } from './parse'
-import { cellWidth, inkFor, mathStyle, type Ink, type MathStyle } from './support'
-import { unicodeMath } from './unicode'
+import { cellWidth, inkFor, mathStyle, padCells, wrapWords, type Ink, type MathStyle } from './support'
+import { readTips, type Tipped } from './tips'
+import { plainOf, unicodeMath } from './unicode'
 
 // Part of every cache key: bump it when bin/render.mjs draws differently.
 const VERSION = 10
@@ -12,6 +13,8 @@ const VERSION = 10
 const ROW_PX = 64
 // The most text one Markdown element draws.
 const MARKDOWN_LIMIT = 10_000
+// The widest a tooltip card gets, in cells.
+const CARD_COLUMNS = 60
 
 // Added to the system prompt where the mod can draw, so Claude writes math
 // the way the parser reads it.
@@ -22,6 +25,7 @@ const MATH_INSTRUCTION = [
   'Put no space right after the opening $ or right before the closing $. Do not write Unicode symbols such as α, ² or ≤ in place of LaTeX.',
   'Math inside tables, headings and block quotes is written as Unicode text instead of drawn, and math in code spans and code blocks is left as written: keep formulas in paragraphs and list items where you can, and put dollar amounts and shell variables in code spans so they are not read as math.',
   'Move long formulas and stacked fractions to display math. AMS environments such as aligned, cases and pmatrix work, and \\text{} takes any script.',
+  'To say what a symbol stands for without crowding the sentence, write it as \\texttip{symbol}{a short explanation in words}, or \\mathtip{symbol}{a formula}: the explanation shows in a card while the pointer rests on the formula, in fullscreen mode only, so keep in the text what the reader needs.',
   'Only math is drawn from LaTeX: write the prose around it as Markdown, without LaTeX commands such as \\enquote{}, \\textbf{} or \\emph{}, which would show as written.',
   'Except in a side question (/btw): when a message says it is a side question from the user, your answer is shown where the plugin cannot draw, so write its math as Unicode text, such as α, x² or ≤, and no $ or LaTeX commands.',
 ].join('\n')
@@ -29,6 +33,9 @@ const MATH_INSTRUCTION = [
 type Picture = { file: string; columns: number; rows: number }
 type Entry = Picture | { error: string }
 type Job = { tex: string; display: boolean }
+// Where a formula is drawn: the columns of the flow or block it is in and, in
+// a flow, the column it starts at; a display formula is centered.
+type Place = { columns: number; x?: number }
 type ListBlock = Extract<Block, { kind: 'list' }>
 type RenderBlock = Exclude<Block, { kind: 'markdown' }> | { kind: 'prose'; text: string; joined?: true } | { kind: 'code'; text: string }
 type Options = Readonly<Record<string, unknown>>
@@ -115,6 +122,24 @@ async function detectFont($: EngineInterface, terminal: string): Promise<void> {
 
 function isPicture(entry: Entry | undefined): entry is Picture {
   return entry !== undefined && 'file' in entry
+}
+
+// The job a formula's picture is drawn by: its TeX with each tooltip's
+// explanation taken out, which the mod shows itself (see tips.ts).
+function jobOf(tex: string, display: boolean): Job {
+  return { tex: readTips(tex).tex, display }
+}
+
+// Where each item of a flow starts on its line, laid out as flex wrap does:
+// an item that would pass `width` starts the next line, unless it is first.
+function lineStarts(boxes: { columns: number }[], width: number): number[] {
+  let used = 0
+  return boxes.map(box => {
+    if (used > 0 && used + box.columns > width) used = 0
+    const start = used
+    used += box.columns
+    return start
+  })
 }
 
 // How many rows the first wrapped line of a flow takes, found by laying the
@@ -244,7 +269,7 @@ function keepDrawn(requestId: string, portion: Portion): void {
 // portions are never joined as one paragraph.
 function readAs(text: string, portions: Portion[]): string | null {
   const sizeOf = (job: Job) => {
-    const entry = entries.get(keyOf(job))
+    const entry = entries.get(keyOf(jobOf(job.tex, job.display)))
     return isPicture(entry) ? entry : undefined
   }
   const shown: Shown[] = []
@@ -361,7 +386,7 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  on('command.run', { command: 'latex-inline' }, async () => {
+  on('command.run', { command: 'latex-inline' }, async ($, e) => {
     if (config.style === 'off') return { text: 'Math: left as LaTeX (mode is off)' }
     if (config.style === 'text') {
       const why = stringOption(options, 'mode', 'auto') === 'text' ? 'mode is text' : 'this terminal shows no kitty-graphics pictures'
@@ -372,9 +397,11 @@ export const register: Register = (on, options) => {
       : clipboardReader === null
         ? 'as picture placeholders (no pbpaste, wl-paste, xclip or xsel to read the clipboard with)'
         : 'with the formulas as LaTeX, for a selection in fullscreen mode'
+    const tooltips = e.presentation.isFullscreen ? 'in a card while the pointer rests on the formula' : 'not shown outside fullscreen mode'
     const lines = [
       'Math: drawn as pictures',
       `Copying: ${copying}`,
+      `Tooltips: ${tooltips}`,
       `Terminal font: ${fontReport}`,
       `Cell: height/width ${style.cellRatio.toFixed(3)}, baseline at ${style.baseline.toFixed(3)} of the height, ${style.lineEm.toFixed(3)} em tall`,
       `Sizes: inline ${style.mathScale} em, display ${style.displayScale} em`,
@@ -450,12 +477,20 @@ export const register: Register = (on, options) => {
     if (!blocks.every(block => block.kind === 'markdown' || cut(block, width))) return asUnicode()
     keepDrawn(e.requestId, { text: e.props.text, width, isFirstOfReply: e.props.isFirstOfReply })
 
+    // Tooltip cards only where the pointer is followed: on the main screen
+    // no hover ever shows one.
+    const hasCards = e.viewport?.isFullscreen === true
     const pictures = new Map<string, Entry | undefined>()
     const jobs: Job[] = []
+    const formula = (tex: string, display: boolean) => {
+      jobs.push(jobOf(tex, display))
+      if (!hasCards) return
+      for (const tip of readTips(tex).tips) if ('tex' in tip && tip.tex !== '') jobs.push(jobOf(tip.tex, false))
+    }
     const collect = (block: Block) => {
-      if (block.kind === 'display') jobs.push({ tex: block.tex, display: true })
+      if (block.kind === 'display') formula(block.tex, true)
       const tokens = block.kind === 'para' ? block.tokens : block.kind === 'list' ? block.items.flatMap(item => item.tokens) : []
-      for (const token of tokens) if (token.kind === 'math') jobs.push({ tex: token.tex, display: false })
+      for (const token of tokens) if (token.kind === 'math') formula(token.tex, false)
       if (block.kind === 'list') for (const item of block.items) for (const child of item.blocks ?? []) collect(child)
     }
     for (const block of blocks) collect(block)
@@ -466,66 +501,141 @@ export const register: Register = (on, options) => {
 
     const { Box, Image, Markdown, Text } = $.ui.resolve(e)
 
-    // A formula without a picture, still rendering or failed, shows its source dimmed.
-    const picture = (job: Job, fallback: string) => {
-      const entry = pictures.get(keyOf(job))
-      if (!isPicture(entry)) return <Text dimColor>{fallback}</Text>
-      // Give pictures no key: keys must be unique among the Images of one
-      // tree, and an outer mod may put several of these drawings in one tree,
-      // where a repeated key gets the whole tree rejected.
+    // The card a formula's tooltips show in while the pointer rests on its
+    // picture: each explanation beside the part it explains, with no part for
+    // one that explains the whole formula, words wrapped to the room the
+    // formula has and a formula drawn as a picture. It goes above the picture,
+    // out of the flow, moved left as far as it must to end within the room.
+    // Every cell it covers is a character it draws: padding would leave the
+    // text beneath it showing through. None when no tooltip has anything to say.
+    const card = (tipped: Tipped, size: Picture, place: Place) => {
+      type Item = { label: string; text: string } | { label: string; tex: string; entry: Picture }
+      const items = tipped.tips.flatMap((tip, k): Item[] => {
+        const label = k === 0 && tipped.isWhole ? '' : (plainOf(tip.base) ?? tip.base)
+        if ('text' in tip) return tip.text === '' ? [] : [{ label, text: tip.text }]
+        if (tip.tex === '') return []
+        const entry = pictures.get(keyOf(jobOf(tip.tex, false)))
+        return [isPicture(entry) ? { label, tex: tip.tex, entry } : { label, text: plainOf(tip.tex) ?? tip.tex }]
+      })
+      if (items.length === 0) return undefined
+      const labelWidth = Math.max(0, ...items.map(item => cellWidth(item.label)))
+      const gap = labelWidth > 0 ? 2 : 0
+      const room = Math.max(1, Math.min(CARD_COLUMNS, place.columns) - 4 - labelWidth - gap)
+      const bodies = items.map(item => ('entry' in item ? item : { label: item.label, lines: wrapWords(item.text, room) }))
+      const bodyWidth = Math.max(0, ...bodies.map(body => ('entry' in body ? body.entry.columns : Math.max(0, ...body.lines.map(cellWidth)))))
+      const head = (label: string) => ` ${padCells(label, labelWidth)}${' '.repeat(gap)}`
+      let rows = 0
+      const lines = bodies.flatMap(body => {
+        if (!('entry' in body)) {
+          rows += body.lines.length
+          return body.lines.map((line, n) => <Text>{`${head(n === 0 ? body.label : '')}${padCells(line, bodyWidth)} `}</Text>)
+        }
+        const { entry } = body
+        rows += entry.rows
+        const middle = Math.floor((entry.rows - 1) / 2)
+        const column = (text: (row: number) => string) => Array.from({ length: entry.rows }, (_, row) => text(row)).join('\n')
+        return [
+          <Box flexDirection="row">
+            <Text>{column(row => head(row === middle ? body.label : ''))}</Text>
+            <Image source={{ file: entry.file, format: 'png' }} columns={entry.columns} rows={entry.rows} alt={body.tex} />
+            <Text>{column(() => ' '.repeat(bodyWidth - entry.columns + 1))}</Text>
+          </Box>,
+        ]
+      })
+      const width = labelWidth + gap + bodyWidth + 4
+      const x = place.x ?? Math.max(0, Math.floor((place.columns - size.columns) / 2))
       return (
-        <Image
-          source={{ file: entry.file, format: 'png' }}
-          columns={entry.columns}
-          rows={entry.rows}
-          alt={job.tex}
-        />
+        <Box
+          position="absolute"
+          top={-(rows + 2)}
+          left={Math.max(-x, Math.min(0, place.columns - x - width))}
+          width={width}
+          display="none"
+          hover={{ display: 'flex' }}
+          flexDirection="column"
+          borderStyle="round"
+          borderDimColor
+        >
+          {lines}
+        </Box>
       )
     }
 
-    const word = (token: Token) => {
-      if (token.kind === 'math') return picture({ tex: token.tex, display: false }, `$${token.tex}$`)
+    // A formula without a picture, still rendering or failed, shows its
+    // source dimmed. One with tooltips gets their card where the pointer is
+    // followed, in a keyed Box around the picture: the hover's scope.
+    let scopes = 0
+    const picture = (tex: string, display: boolean, place: Place) => {
+      const tipped = readTips(tex)
+      const entry = pictures.get(keyOf({ tex: tipped.tex, display }))
+      if (!isPicture(entry)) return <Text dimColor>{display ? `$$${tex}$$` : `$${tex}$`}</Text>
+      // Give pictures no key: keys must be unique among the Images of one
+      // tree, and an outer mod may put several of these drawings in one tree,
+      // where a repeated key gets the whole tree rejected.
+      const image = <Image source={{ file: entry.file, format: 'png' }} columns={entry.columns} rows={entry.rows} alt={tex} />
+      const tips = hasCards && tipped.tips.length > 0 ? card(tipped, entry, place) : undefined
+      if (tips === undefined) return image
+      return (
+        <Box key={`tip-${scopes++}`} flexShrink={0}>
+          {image}
+          {tips}
+        </Box>
+      )
+    }
+
+    const word = (token: Token, place: Place) => {
+      if (token.kind === 'math') return picture(token.tex, false, place)
       if (token.kind === 'code') return <Text color={config.ink.code}>{token.text}</Text>
       return <Text bold={token.bold === true}>{token.text}</Text>
     }
 
-    // One flex line per wrapped row; centering keeps the baselines level
-    // because every picture is an odd number of rows with its baseline in the middle row.
-    // Tokens with no space between them wrap as one item, so a period or
-    // particle stays on the formula's line.
-    const flow = (tokens: Token[]) => (
-      <Box flexDirection="row" flexWrap="wrap" alignItems="center" flexShrink={1}>
-        {glueTokens(tokens).map(group =>
-          group.length === 1 && group[0] ? (
-            word(group[0])
-          ) : (
-            <Box flexDirection="row" alignItems="center" flexShrink={0}>
-              {group.map(word)}
-            </Box>
-          ),
-        )}
-      </Box>
-    )
-
     const boxOf = (token: Token) => {
       if (token.kind !== 'math') return { columns: cellWidth(token.text), rows: 1 }
-      const entry = pictures.get(keyOf({ tex: token.tex, display: false }))
+      const entry = pictures.get(keyOf(jobOf(token.tex, false)))
       return isPicture(entry) ? entry : { columns: cellWidth(`$${token.tex}$`), rows: 1 }
     }
-    const groupBoxes = (tokens: Token[]) =>
-      glueTokens(tokens).map(group => {
-        const boxes = group.map(boxOf)
-        return { columns: boxes.reduce((sum, box) => sum + box.columns, 0), rows: Math.max(1, ...boxes.map(box => box.rows)) }
-      })
+    const groupBox = (group: Token[]) => {
+      const boxes = group.map(boxOf)
+      return { columns: boxes.reduce((sum, box) => sum + box.columns, 0), rows: Math.max(1, ...boxes.map(box => box.rows)) }
+    }
+    const groupBoxes = (tokens: Token[]) => glueTokens(tokens).map(groupBox)
 
-    // A block of the reply, or one under a list item, drawn in the column it
-    // is placed in.
-    const draw = (block: Block): RenderElement => {
-      if (block.kind === 'para') return flow(block.tokens)
+    // One flex line per wrapped row in `columns`; centering keeps the
+    // baselines level because every picture is an odd number of rows with its
+    // baseline in the middle row. Tokens with no space between them wrap as
+    // one item, so a period or particle stays on the formula's line.
+    const flow = (tokens: Token[], columns: number) => {
+      const groups = glueTokens(tokens)
+      const starts = lineStarts(groups.map(groupBox), columns)
+      return (
+        <Box flexDirection="row" flexWrap="wrap" alignItems="center" flexShrink={1}>
+          {groups.map((group, g) => {
+            let x = starts[g] ?? 0
+            const words = group.map(token => {
+              const drawn = word(token, { columns, x })
+              x += boxOf(token).columns
+              return drawn
+            })
+            return words.length === 1 && words[0] ? (
+              words[0]
+            ) : (
+              <Box flexDirection="row" alignItems="center" flexShrink={0}>
+                {words}
+              </Box>
+            )
+          })}
+        </Box>
+      )
+    }
+
+    // A block of the reply, or one under a list item, drawn in the
+    // `columns` it is placed in.
+    const draw = (block: Block, columns: number): RenderElement => {
+      if (block.kind === 'para') return flow(block.tokens, columns)
       if (block.kind === 'display') {
         return (
           <Box flexDirection="row" justifyContent="center">
-            {picture({ tex: block.tex, display: true }, `$$${block.tex}$$`)}
+            {picture(block.tex, true, { columns })}
           </Box>
         )
       }
@@ -548,7 +658,7 @@ export const register: Register = (on, options) => {
         const rows = [
           <Box flexDirection="row" alignItems="flex-start" marginLeft={indent} marginTop={index === 0 ? marginTop : item.spaced ? 1 : 0}>
             <Text>{onTextRow(item.prefix, firstLineRows(groupBoxes(item.tokens), lineWidth - inner))}</Text>
-            {flow(item.tokens)}
+            {flow(item.tokens, lineWidth - inner)}
           </Box>,
         ]
         for (const [place, child] of (item.blocks ?? []).entries()) {
@@ -556,7 +666,7 @@ export const register: Register = (on, options) => {
           if (child.kind === 'list') rows.push(...listRows(child, inner, top))
           else rows.push(
             <Box flexDirection="column" marginLeft={inner} marginTop={top}>
-              {draw(child)}
+              {draw(child, lineWidth - inner)}
             </Box>,
           )
         }
@@ -571,7 +681,7 @@ export const register: Register = (on, options) => {
       firstRows = firstLineRows(groupBoxes(item.tokens), lineWidth - cellWidth(item.prefix))
     }
     if (first?.kind === 'display') {
-      const entry = pictures.get(keyOf({ tex: first.tex, display: true }))
+      const entry = pictures.get(keyOf(jobOf(first.tex, true)))
       firstRows = isPicture(entry) ? entry.rows : 1
     }
     const bullet = onTextRow('⏺', firstRows)
@@ -638,7 +748,7 @@ export const register: Register = (on, options) => {
         addDirect(<Markdown text={block.text} />, block.joined === true)
         continue
       }
-      addDirect(draw(block), block.joined === true)
+      addDirect(draw(block, lineWidth), block.joined === true)
     }
     flushDirect()
     return <Box flexDirection="column">{rows}</Box>

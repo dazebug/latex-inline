@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { splitMarkdown } from '../hooks/parse'
-import { cellWidth, inkFor, mathStyle } from '../hooks/support'
+import { cellWidth, inkFor, mathStyle, padCells, wrapWords } from '../hooks/support'
 
 test('markdown longer than the element limit splits at blank lines', async () => {
   const text = ['a'.repeat(6), 'b'.repeat(6), 'c'.repeat(6)].join('\n\n')
@@ -37,4 +37,16 @@ test('ink follows the theme unless a color is set', async () => {
   expect(inkFor(undefined, 'auto').math).toBe('#e8e8e8')
   expect(inkFor('light-daltonized', 'auto').math).toBe('#24292f')
   expect(inkFor('light', '#123456').math).toBe('#123456')
+})
+
+test('words wrap in cells, Hangul taking two, and a word longer than a line is cut', async () => {
+  expect(wrapWords('모든 표본의 합', 9)).toEqual(['모든', '표본의 합'])
+  expect(wrapWords('a  b\nc', 3)).toEqual(['a b', 'c'])
+  expect(wrapWords('abcdefgh ij', 3)).toEqual(['abc', 'def', 'gh', 'ij'])
+  expect(wrapWords('', 3)).toEqual([])
+})
+
+test('padding fills cells, Hangul taking two', async () => {
+  expect(padCells('질량', 6)).toBe('질량  ')
+  expect(padCells('longer', 3)).toBe('longer')
 })
