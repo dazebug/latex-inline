@@ -56,6 +56,10 @@ This works for a selection inside one reply. A selection that spans several mess
 
 MathJax's action extension writes an explanation on part of a formula: `\texttip{part}{explanation}` in words, `\mathtip{part}{formula}` as math. In a browser MathJax shows it while the pointer rests on the part. Here, in fullscreen mode, rest the pointer anywhere on the formula's picture and a card above it shows all of the formula's explanations, each beside the part it explains, a `\mathtip` formula drawn as a picture. An explanation of the whole formula stands alone in the card. The card moves left where it would pass the reply's right edge, and goes once the pointer leaves the formula.
 
+![A reply naming Euler's identity as the most beautiful equation. The pointer rests on the display formula e^(iπ) + 1 = 0, and a card above it says what e, i, π, 1 and 0 stand for; then it rests on e^(iθ) in the next sentence, and a card shows cos θ + i sin θ drawn as math](docs/tooltips.gif)
+
+*Ghostty with its default font (JetBrains Mono, 13pt); the reply's LaTeX puts `\texttip` on each constant of Euler's identity and `\mathtip` on e^(iθ).*
+
 The section the plugin adds to Claude's system prompt tells Claude how to write them, and to keep what the reader needs in the text, since the card shows in fullscreen mode only. To have Claude explain every symbol of a formula this way, ask for it: "explain each symbol with `\texttip`". Outside fullscreen mode, and in Unicode text, a formula shows its parts without the explanations. `/latex-inline` says whether tooltips show in the session.
 
 ## Configuration
