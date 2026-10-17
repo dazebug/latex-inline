@@ -405,6 +405,12 @@ class Reader {
     }
     if (TEXT.has(name)) return [atom('ord', textOf(this.raw()))]
     if (STYLES.has(name)) return [group(this.argument(script), script)]
+    // A tooltip shows the part it explains: no pointer reaches text.
+    if (name === 'texttip' || name === 'mathtip') {
+      const part = group(this.argument(script), script)
+      this.raw()
+      return [part]
+    }
     const kind = CLASSES[name]
     if (kind) return [atom(kind, render(this.argument(script), script))]
     const font = FONTS[name]
@@ -528,7 +534,7 @@ function escapeMarkdown(text: string): string {
 }
 
 // A formula as Unicode, or null when it can't be converted.
-function plainOf(tex: string): string | null {
+export function plainOf(tex: string): string | null {
   try {
     return texToUnicode(tex)
   } catch {

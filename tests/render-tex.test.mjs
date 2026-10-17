@@ -73,6 +73,15 @@ test('commands Claude writes that MathJax lacks are drawn as their usual forms',
   ])
 })
 
+// The mod hands every tooltip on as \texttip{part}{number} and draws the
+// card itself, so the picture must be the part's alone, spaced as it would be.
+test('a tooltip is drawn as the part it explains', () => {
+  assertDrawnAs([
+    ['E \\texttip{=}{0} \\texttip{m}{1}\\texttip{c}{2}^2', 'E = mc^2'],
+    ['\\texttip{\\sum}{0}_{i=1}^n x_i', '\\sum_{i=1}^n x_i'],
+  ])
+})
+
 test('a letter the MathJax font lacks is drawn from a math font, not as a missing-glyph box', { skip: !hasMathFont && 'No math fallback font is installed' }, () => {
   const nothing = String.fromCodePoint(0x10fffd)
   const results = render([['indicator', '\\mathbb{1}'], ['missing', nothing]])
