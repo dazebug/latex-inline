@@ -39,6 +39,7 @@ test('spacing follows TeX: operators and relations are spaced, a sign is not', a
 test('a tooltip shows only the part it explains', async () => {
   expect(texToUnicode('E = \\texttip{m}{mass} c^2')).toBe('E = mc²')
   expect(texToUnicode('\\mathtip{x^2}{x \\cdot x} + 1')).toBe('x² + 1')
+  expect(texToUnicode('\\mathtip{x}\\alpha + y')).toBe('x + y')
 })
 
 test('scripts, fonts and negations commonly seen in ML notes', async () => {
