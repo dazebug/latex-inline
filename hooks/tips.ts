@@ -8,10 +8,11 @@
 export type Tip = { base: string; text: string } | { base: string; tex: string }
 
 // A formula's tooltips in the order they start, and the formula as the
-// renderer gets it: each tooltip as \texttip{part}{its number}. That draws the
-// part as MathJax draws a tooltip's part, spaced the same, and \mathtip, which
-// MathJax fails on without a browser, never reaches it. `isWhole`: the first
-// tooltip explains the whole formula.
+// renderer gets it: each tooltip as \texttip{part}{its number}. Do not hand
+// the part on as {part}: braces make an operator ordinary, so a tooltip on +
+// or = would lose its spacing, where \texttip draws the part spaced as it is.
+// \mathtip, which MathJax fails on without a browser, never reaches it.
+// `isWhole`: the first tooltip explains the whole formula.
 export type Tipped = { tex: string; tips: Tip[]; isWhole: boolean }
 
 const NAME = /^[A-Za-z]+/

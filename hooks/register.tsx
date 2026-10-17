@@ -502,15 +502,12 @@ export const register: Register = (on, options) => {
     const { Box, Image, Markdown, Text } = $.ui.resolve(e)
 
     // The card a formula's tooltips show in while the pointer rests on its
-    // picture: each explanation beside the part it explains, or under it,
-    // indented, when the part would take more than a third of a line; no part
-    // for one that explains the whole formula. Every line keeps within the
-    // room the formula has, up to CARD_COLUMNS: words wrap and a formula too
-    // wide to draw there is written as Unicode text. The card goes above the
-    // picture, out of the flow, moved left as far as it must to end within the
-    // room. Every cell it covers is a character it draws: padding would leave
-    // the text beneath it showing through. None when no tooltip has anything
-    // to say.
+    // picture, above it and out of the flow: each explanation beside, or for a
+    // long part under, the part it explains, all within the room the formula
+    // has (at most CARD_COLUMNS) and moved left as far as it must to end there.
+    // Undefined when there is nothing to show. Draw every cell the card covers
+    // as a character: Box padding is left undrawn, and the text beneath would
+    // show through it.
     const card = (tipped: Tipped, size: Picture, place: Place) => {
       const content = Math.max(1, Math.min(CARD_COLUMNS, place.columns) - 4)
       const tips = tipped.tips
@@ -532,7 +529,9 @@ export const register: Register = (on, options) => {
         const words = wrapWords('text' in tip ? tip.text : (plainOf(tip.tex) ?? tip.tex), room)
         return [...above, ...words.map((text, n) => ({ head: n === 0 ? head : ' '.repeat(indent), text }))]
       })
-      // A formula written as text can come to nothing, as \quad does.
+      // Leave out a card with no lines, as a formula written as text can give
+      // (\quad does): its width would not be a number, and Claude Code refuses
+      // the whole reply's drawing for one such Box.
       if (lines.length === 0) return undefined
       const inner = Math.max(...lines.map(line => cellWidth(line.head) + ('entry' in line ? line.entry.columns : cellWidth(line.text))))
       let rows = 0
