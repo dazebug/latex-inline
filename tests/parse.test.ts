@@ -199,6 +199,19 @@ test('a display formula does not close on delimiters inside braces or escaped do
   expect(parseBlocks('\\[\\text{\\]}\\]')).toEqual([{ kind: 'display', tex: '\\text{\\]}' }])
 })
 
+test('a display formula does not close inside a comment or \\verb', async () => {
+  expect(parseBlocks('$$\\verb|$$|$$')).toEqual([{ kind: 'display', tex: '\\verb|$$|' }])
+  expect(parseBlocks('$$\nA % $$ ignored comment\n+B\n$$')).toEqual([{ kind: 'display', tex: 'A % $$ ignored comment\n+B' }])
+  expect(parseBlocks('$$\nA % {\n+B\n$$')).toEqual([{ kind: 'display', tex: 'A % {\n+B' }])
+  expect(parseBlocks('\\[\\verb|\\]|\\]')).toEqual([{ kind: 'display', tex: '\\verb|\\]|' }])
+  expect(parseBlocks('\\[\nA % \\]\n+B\n\\]')).toEqual([{ kind: 'display', tex: 'A % \\]\n+B' }])
+  // An escaped percent sign starts no comment.
+  expect(parseBlocks('$$5\\% $$\n$$B$$')).toEqual([
+    { kind: 'display', tex: '5\\%' },
+    { kind: 'display', tex: 'B', joined: true },
+  ])
+})
+
 test('a reply without math stays one markdown block', async () => {
   const text = '그냥 문단\n\n| a | b |\n|---|---|\n| $1 | $2 |'
   expect(parseBlocks(text)).toEqual([{ kind: 'markdown', text }])

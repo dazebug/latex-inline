@@ -231,12 +231,33 @@ function sameList(a: string, b: string): boolean {
   return DIGIT.test(a) ? DIGIT.test(b) && a.slice(-1) === b.slice(-1) : a === b
 }
 
+// Where text TeX reads as written, starting at `i`, ends: a comment runs to
+// the end of its line, which it takes in, and \verb to its closing delimiter.
+// `i` when none starts there. Read nothing inside one as TeX's own: a $$, a
+// brace or a command spelled there would end a formula or a tooltip early.
+export function literalEnd(s: string, i: number): number {
+  if (s[i] === '%') {
+    const end = s.indexOf('\n', i)
+    return end < 0 ? s.length : end + 1
+  }
+  if (!s.startsWith('\\verb', i) || /[A-Za-z]/.test(s[i + 5] ?? '')) return i
+  let j = i + 5
+  while (WHITESPACE.test(s[j] ?? '')) j++
+  const end = s[j] === undefined ? -1 : s.indexOf(s[j] as string, j + 1)
+  return end < 0 ? s.length : end + 1
+}
+
 function displayClose(text: string, start: number, opening: '$$' | '\\['): number {
   const bodyStart = start + opening.length
   let braces = 0
   for (let i = bodyStart; i < text.length;) {
     if (opening === '\\[' && braces === 0 && text.startsWith('\\]', i)) return i > bodyStart ? i : -1
     if (opening === '$$' && braces === 0 && text.startsWith('$$', i)) return i > bodyStart ? i : -1
+    const literal = literalEnd(text, i)
+    if (literal > i) {
+      i = literal
+      continue
+    }
     if (text[i] === '\\') {
       i += Math.min(2, text.length - i)
       continue
@@ -248,9 +269,10 @@ function displayClose(text: string, start: number, opening: '$$' | '\\['): numbe
   return -1
 }
 
-// Only a paragraph made of display formulas and whitespace is read as display formulas, one block each; prose between them leaves it a paragraph, whose $$…$$ tokenize reads as inline math.
-// Skipping escaped characters and ignoring delimiters inside braces keeps TeX
-// content from changing where a formula ends.
+// Only a paragraph made of display formulas and whitespace is read as display
+// formulas, one block each; prose between them leaves it a paragraph, whose
+// $$…$$ tokenize reads as inline math. A formula closes at its own $$ or \]:
+// not at one escaped, inside braces, or in a comment or \verb.
 export function displayFormulas(text: string): string[] | null {
   const formulas: string[] = []
   let i = 0
