@@ -44,6 +44,26 @@ test('in text mode a reply shows its math as Unicode', { options: { mode: 'text'
   expect((await ui.find({ type: 'Text' }))?.text).toBe('저는 Q ≥ 0이 맞다고 봅니다.')
 })
 
+test('adjacent display formulas draw as two images in one group without a blank row', { options: { mode: 'on', font_metrics: 'manual' } }, async ($, on) => {
+  engine(on, { pictures: true })
+  await $.session.start(SESSION)
+  const text = '$$\nA\n$$\n$$\nB\n$$'
+  const ui = await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text, isFirstOfReply: true } })
+  const images = await ui.findAll({ type: 'Image' })
+  expect(images.map(image => image.props.alt)).toEqual(['A', 'B'])
+
+  const group = walk(await ui.drawn()).find(element => {
+    const rows = element.children as Drawn[] | undefined
+    return element.type === 'Box'
+      && element.props?.flexDirection === 'column'
+      && rows?.length === 2
+      && rows.every(row => walk(row).some(child => child.type === 'Image'))
+  })
+  expect(group?.children).toHaveLength(2)
+  expect(group?.props?.gap).toBeUndefined()
+  expect(group?.children?.map(row => walk(row).find(child => child.type === 'Image')?.props?.alt)).toEqual(['A', 'B'])
+})
+
 test('in a terminal without pictures, auto mode shows Unicode', { options: { mode: 'auto' } }, async ($, on) => {
   engine(on)
   await $.session.start(SESSION)

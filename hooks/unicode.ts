@@ -1,3 +1,4 @@
+import { displayFormulas } from './parse'
 import { cellWidth } from './support'
 
 // LaTeX as plain Unicode text, for terminals that can't show the plugin's
@@ -577,21 +578,26 @@ function convertParagraph(s: string): string {
   return out
 }
 
-// A paragraph that is one formula and nothing else is display math, centered
-// in `width` cells or indented when the width is unknown.
+// A paragraph made only of display formulas is written one formula a line,
+// each centered in `width` cells or indented when the width is unknown, with
+// a blank line between them: Markdown joins the lines of one paragraph.
 function convertBlock(lines: string[], width: number | undefined): string {
   const text = lines.join('\n')
-  const trimmed = text.trim()
-  const formula = trimmed.startsWith('$$') ? formulaAt(trimmed, 0) : trimmed.startsWith('\\[') ? bracketedAt(trimmed, 0) : null
-  const plain = formula && formula.end === trimmed.length ? plainOf(formula.tex) : null
-  if (plain === null) return convertParagraph(text)
+  const formulas = displayFormulas(text)
+  if (formulas === null) return convertParagraph(text)
   const indent = /^\s*/.exec(text)?.[0] ?? ''
-  const pad = width === undefined ? 4 : Math.max(0, Math.floor((width - cellWidth(indent) - cellWidth(plain)) / 2))
-  return indent + PAD.repeat(pad) + escapeMarkdown(plain)
+  const linesOfMath: string[] = []
+  for (const tex of formulas) {
+    const plain = plainOf(tex)
+    if (plain === null) return convertParagraph(text)
+    const pad = width === undefined ? 4 : Math.max(0, Math.floor((width - cellWidth(indent) - cellWidth(plain)) / 2))
+    linesOfMath.push(indent + PAD.repeat(pad) + escapeMarkdown(plain))
+  }
+  return linesOfMath.join('\n\n')
 }
 
 // A reply's math as Unicode text, its markdown otherwise as written: fenced
-// code keeps its dollars, a formula alone in its paragraph is centered in
+// code keeps its dollars, display formulas in a paragraph are centered in
 // `width` cells, and what Markdown would read as markup in the converted math
 // is escaped.
 export function unicodeMath(markdown: string, width?: number): string {

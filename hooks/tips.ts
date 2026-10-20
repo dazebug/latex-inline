@@ -1,3 +1,5 @@
+import { literalEnd } from './parse'
+
 // MathJax's tooltips (its action extension): \texttip{part}{words} and
 // \mathtip{part}{formula} put an explanation on part of a formula. MathJax
 // shows it with a browser's pointer events, which a picture lacks, so the mod
@@ -17,23 +19,6 @@ export type Tipped = { tex: string; tips: Tip[]; isWhole: boolean }
 
 const NAME = /^[A-Za-z]+/
 const SPACES = /\s/
-
-// Where text TeX reads as written, starting at `i`, ends: a comment runs to
-// the end of its line, which it takes in, and \verb to its closing delimiter.
-// `i` when none starts there. Never look for tooltips inside one: a command
-// spelled there is not run, and reading one in a comment would take in the
-// newline and run the next line into it.
-function literalEnd(s: string, i: number): number {
-  if (s[i] === '%') {
-    const end = s.indexOf('\n', i)
-    return end < 0 ? s.length : end + 1
-  }
-  if (!s.startsWith('\\verb', i) || NAME.test(s[i + 5] ?? '')) return i
-  let j = i + 5
-  while (SPACES.test(s[j] ?? '')) j++
-  const end = s[j] === undefined ? -1 : s.indexOf(s[j] as string, j + 1)
-  return end < 0 ? s.length : end + 1
-}
 
 // Where the argument at `from` ends, past the spaces before it, as TeX reads
 // it: a {...} group, a command or one character. Null when there is none.
@@ -69,6 +54,9 @@ export function readTips(tex: string): Tipped {
     let out = ''
     let i = 0
     while (i < s.length) {
+      // Copy a comment or \verb as written: a tooltip spelled there is not
+      // run, and reading one in a comment would take in the newline and run
+      // the next line into it.
       const literal = literalEnd(s, i)
       if (literal > i) {
         out += s.slice(i, literal)

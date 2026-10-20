@@ -231,10 +231,63 @@ function sameList(a: string, b: string): boolean {
   return DIGIT.test(a) ? DIGIT.test(b) && a.slice(-1) === b.slice(-1) : a === b
 }
 
-function displayTex(lines: string[]): string | null {
-  const joined = lines.join('\n').trim()
-  const display = /^\$\$([\s\S]+)\$\$$/.exec(joined) ?? /^\\\[([\s\S]+)\\\]$/.exec(joined)
-  return display ? (display[1] ?? '').trim() : null
+// Where text TeX reads as written, starting at `i`, ends: a comment runs to
+// the end of its line, which it takes in, and \verb to its closing delimiter.
+// `i` when none starts there. Read nothing inside one as TeX's own: a $$, a
+// brace or a command spelled there would end a formula or a tooltip early.
+export function literalEnd(s: string, i: number): number {
+  if (s[i] === '%') {
+    const end = s.indexOf('\n', i)
+    return end < 0 ? s.length : end + 1
+  }
+  if (!s.startsWith('\\verb', i) || /[A-Za-z]/.test(s[i + 5] ?? '')) return i
+  let j = i + 5
+  while (WHITESPACE.test(s[j] ?? '')) j++
+  const end = s[j] === undefined ? -1 : s.indexOf(s[j] as string, j + 1)
+  return end < 0 ? s.length : end + 1
+}
+
+function displayClose(text: string, start: number, opening: '$$' | '\\['): number {
+  const bodyStart = start + opening.length
+  let braces = 0
+  for (let i = bodyStart; i < text.length;) {
+    if (opening === '\\[' && braces === 0 && text.startsWith('\\]', i)) return i > bodyStart ? i : -1
+    if (opening === '$$' && braces === 0 && text.startsWith('$$', i)) return i > bodyStart ? i : -1
+    const literal = literalEnd(text, i)
+    if (literal > i) {
+      i = literal
+      continue
+    }
+    if (text[i] === '\\') {
+      i += Math.min(2, text.length - i)
+      continue
+    }
+    if (text[i] === '{') braces++
+    else if (text[i] === '}' && braces > 0) braces--
+    i++
+  }
+  return -1
+}
+
+// Only a paragraph made of display formulas and whitespace is read as display
+// formulas, one block each; prose between them leaves it a paragraph, whose
+// $$…$$ tokenize reads as inline math. A formula closes at its own $$ or \]:
+// not at one escaped, inside braces, or in a comment or \verb.
+export function displayFormulas(text: string): string[] | null {
+  const formulas: string[] = []
+  let i = 0
+  while (i < text.length) {
+    while (i < text.length && WHITESPACE.test(text[i] ?? '')) i++
+    if (i === text.length) break
+
+    const opening = text.startsWith('$$', i) ? '$$' : text.startsWith('\\[', i) ? '\\[' : null
+    if (opening === null) return null
+    const end = displayClose(text, i, opening)
+    if (end < 0) return null
+    formulas.push(text.slice(i + opening.length, end).trim())
+    i = end + 2
+  }
+  return formulas.length > 0 ? formulas : null
 }
 
 // A line that ends the paragraph above it, as in Claude Code's Markdown: a
@@ -299,13 +352,13 @@ function readList(lines: string[], start: number, joined: boolean): ListChunk {
   return { kind: 'list', start, end, joined, ordered, first: ordered ? Number.parseInt(marker, 10) : 1, items }
 }
 
-function readChunk(lines: string[], start: number, joined: boolean): Chunk {
+function readChunk(lines: string[], start: number, joined: boolean): Chunk[] {
   const line = lines[start] ?? ''
   const fence = opensFence(line)
   if (fence) {
     let end = start + 1
     while (end < lines.length && !closesFence(lines[end] ?? '', fence)) end++
-    return { kind: 'other', start, end: Math.min(end + 1, lines.length), joined }
+    return [{ kind: 'other', start, end: Math.min(end + 1, lines.length), joined }]
   }
   const toBlank = () => {
     let end = start + 1
@@ -314,15 +367,23 @@ function readChunk(lines: string[], start: number, joined: boolean): Chunk {
   }
   if (DISPLAY_OPENING.test(line)) {
     const end = toBlank()
-    const tex = displayTex(lines.slice(start, end))
-    if (tex !== null) return { kind: 'display', tex, start, end, joined }
+    const formulas = displayFormulas(lines.slice(start, end).join('\n'))
+    if (formulas !== null) {
+      return formulas.map((tex, index) => ({
+        kind: 'display',
+        tex,
+        start,
+        end,
+        joined: index === 0 ? joined : true,
+      }))
+    }
   }
-  if (listMarker(untab(line))) return readList(lines, start, joined)
-  if (HEADING.test(line) || RULE.test(line)) return { kind: 'other', start, end: start + 1, joined }
-  if (QUOTE.test(line) || TABLE.test(line)) return { kind: 'other', start, end: toBlank(), joined }
+  if (listMarker(untab(line))) return [readList(lines, start, joined)]
+  if (HEADING.test(line) || RULE.test(line)) return [{ kind: 'other', start, end: start + 1, joined }]
+  if (QUOTE.test(line) || TABLE.test(line)) return [{ kind: 'other', start, end: toBlank(), joined }]
   let end = start + 1
   while (end < lines.length && !isBlank(lines[end] ?? '') && !breaksParagraph(lines[end] ?? '')) end++
-  return { kind: 'text', start, end, joined }
+  return [{ kind: 'text', start, end, joined }]
 }
 
 // Splits a container's lines into chunks: the reply's, or a list item's
@@ -340,10 +401,10 @@ function scan(lines: string[]): Chunk[] {
     }
     const previous = chunks[chunks.length - 1]
     const underHeading = previous?.kind === 'other' && HEADING.test(lines[previous.start] ?? '')
-    const chunk = readChunk(lines, i, previous !== undefined && !blank && !underHeading)
-    chunks.push(chunk)
+    const read = readChunk(lines, i, previous !== undefined && !blank && !underHeading)
+    chunks.push(...read)
     blank = false
-    i = chunk.end
+    i = read[0]?.end ?? i + 1
   }
   return chunks
 }
@@ -394,7 +455,14 @@ function listOf(list: ListChunk, depth: number): Block {
   const items = list.items.map((item, index): ListItem => {
     const chunks = scan(item.lines)
     const head = chunks[0]
-    const opens = head !== undefined && (head.kind === 'text' || head.kind === 'display')
+    // Keep a run of display formulas that opens the item out of its first
+    // line: read as that line, the run's later formulas would be drawn twice,
+    // in the line and again as blocks. The marker gets a row of its own.
+    const adjacentDisplayHead = head?.kind === 'display'
+      && chunks[1]?.kind === 'display'
+      && chunks[1].start === head.start
+      && chunks[1].end === head.end
+    const opens = head !== undefined && (head.kind === 'text' || (head.kind === 'display' && !adjacentDisplayHead))
     const tokens = opens ? tokensOf(item.lines.slice(head.start, head.end)) : []
     const blocks = blocksOf(item.lines, opens ? chunks.slice(1) : chunks, depth + 1)
     return {
