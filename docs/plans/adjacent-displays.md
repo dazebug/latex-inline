@@ -4,7 +4,7 @@
 - 대상: `dazebug/latex-inline` (`hooks/`)
 - 시작 커밋: `7b87c6f`
 - 기준 트리: `/Users/choongjaelee/Codes/latex-inline/.claude/worktrees/adjacent-displays-review` (`worktree-adjacent-displays-review`) · 작업 트리: `/Users/choongjaelee/Codes/latex-inline-adjacent-displays-work` (`adjacent-displays-work`)
-- 현재: R1 · 마지막 승격 3e16d92 · 리뷰 중 없음 · 게이트 그린(120 · 15 · tsc)
+- 현재: R1 · 마지막 승격 478b227 · 리뷰 중 없음 · 게이트 그린(121 · 15 · tsc)
 - 최근 검증자 판정: 미요청 · 원문 없음
 
 이 파일은 **실행한 계획과 실행할 계획의 기록**이다 — 결정(사용자·드라이버), 판정(검증자), 항목의 상태와 재실행 근거(명령 + 결과 줄 + 수치), 남은 큐, 크로스 리포 사실을 보존한다. 코드 수정 과정을 자연어로 풀어 쓰지 않는다: 무엇이 바뀌었는지는 커밋이, 어떻게 동작하는지는 코드가 말한다. 결정이나 질문이 특정 동작에 걸리면 한 절과 `파일:행`으로 끝낸다. 이 템플릿에 없는 소절을 만들지 않는다 — 테스트 설계는 테스트 파일이 말한다.
@@ -75,8 +75,8 @@
 
 | # | 항목 | 부류 | 확정 결함 | 파일 집합 | 의존 | 상태 | 근거 | 승격 |
 |:--|:--|:--|:--|:--|:--|:--|:--|:--|
-| 1 | 인접 display 경계를 분리하고 렌더·복사 회귀를 고정한다 | 파서 경계 | (a) 재현 입력의 여러 줄 블록 둘 (b) 줄마다 하나 (`lines`) (c) 한 줄에 둘 (`oneLine`) (d) 사이에 글 → 단락 (`textBetween`) (e) `\[…\]` 만 (`brackets`)·`$$` 와 섞임 (`mixed`) (f) 목록 항목 안 | `hooks/parse.ts` · `tests/parse.test.ts` · `tests/render.test.ts` · `tests/copy.test.ts` | — | verified | 공유 API: `displayFormulas(text: string)` → `string[]` 또는 `null` — 비수식 글이 섞이면 `null`, display 본문 목록이면 각 TeX를 순서대로 반환한다.<br>`claude plugin test` → 120 pass, 0 fail, 6 files. 신규 5개: `adjacent display formulas split into blocks, while text between them stays a paragraph`; `adjacent display formulas under a list item stay as separate blocks`; `a display formula does not close on delimiters inside braces or escaped dollars`; `adjacent display formulas draw as two images in one group without a blank row`; `a mouse copy of adjacent display formulas uses one newline between them`.<br>`node --test tests/font-metrics.test.mjs tests/render-bounds.test.mjs tests/render-tex.test.mjs` → 15 pass, 0 fail.<br>`npx -y -p typescript@5 tsc --noEmit` → exit 0 (`Unknown env config "http-proxy"` 경고).<br>토글: `git diff -- hooks/parse.ts > .git/toggle.patch` · `git apply -R .git/toggle.patch` 뒤 `claude plugin test` → 116 pass, 4 fail, 6 files; red: `(fail) adjacent display formulas split into blocks, while text between them stays a paragraph`, `(fail) adjacent display formulas under a list item stay as separate blocks`, `(fail) adjacent display formulas draw as two images in one group without a blank row`, `(fail) a mouse copy of adjacent display formulas uses one newline between them`. `git apply .git/toggle.patch` 복원 뒤 작업 파일만 남음을 `git status --porcelain` 로 확인했다.<br>재실행(드라이버): parseBlocks 프로브 15개 입력 기대대로 | | |
-| 2 | 유니코드 출력이 각 display 를 독립 변환하게 한다 | 유니코드 변환 | (a) 같은 입력들의 유니코드 출력에서 구분자가 남지 않고 블록마다 따로 가운데 맞춘 줄이 된다 — Markdown 이 한 문단의 줄을 이어 붙이므로 블록 사이에 빈 줄을 둔다(그림 모드와 달리 빈 행 하나는 허용) (b) 버전 0.5.1 | `hooks/unicode.ts` · `tests/unicode.test.ts` · `.claude-plugin/plugin.json` | 1 | todo | | |
+| 1 | 인접 display 경계를 분리하고 렌더·복사 회귀를 고정한다 | 파서 경계 | (a) 재현 입력의 여러 줄 블록 둘 (b) 줄마다 하나 (`lines`) (c) 한 줄에 둘 (`oneLine`) (d) 사이에 글 → 단락 (`textBetween`) (e) `\[…\]` 만 (`brackets`)·`$$` 와 섞임 (`mixed`) (f) 목록 항목 안 | `hooks/parse.ts` · `tests/parse.test.ts` · `tests/render.test.ts` · `tests/copy.test.ts` | — | cleared | 공유 API: `displayFormulas(text: string)` → `string[]` 또는 `null` — 비수식 글이 섞이면 `null`, display 본문 목록이면 각 TeX를 순서대로 반환한다.<br>`claude plugin test` → 120 pass, 0 fail, 6 files. 신규 5개: `adjacent display formulas split into blocks, while text between them stays a paragraph`; `adjacent display formulas under a list item stay as separate blocks`; `a display formula does not close on delimiters inside braces or escaped dollars`; `adjacent display formulas draw as two images in one group without a blank row`; `a mouse copy of adjacent display formulas uses one newline between them`.<br>`node --test tests/font-metrics.test.mjs tests/render-bounds.test.mjs tests/render-tex.test.mjs` → 15 pass, 0 fail.<br>`npx -y -p typescript@5 tsc --noEmit` → exit 0 (`Unknown env config "http-proxy"` 경고).<br>토글: `git diff -- hooks/parse.ts > .git/toggle.patch` · `git apply -R .git/toggle.patch` 뒤 `claude plugin test` → 116 pass, 4 fail, 6 files; red: `(fail) adjacent display formulas split into blocks, while text between them stays a paragraph`, `(fail) adjacent display formulas under a list item stay as separate blocks`, `(fail) adjacent display formulas draw as two images in one group without a blank row`, `(fail) a mouse copy of adjacent display formulas uses one newline between them`. `git apply .git/toggle.patch` 복원 뒤 작업 파일만 남음을 `git status --porcelain` 로 확인했다.<br>재실행(드라이버): parseBlocks 프로브 15개 입력 기대대로 | | |
+| 2 | 유니코드 출력이 각 display 를 독립 변환하게 한다 | 유니코드 변환 | (a) 같은 입력들의 유니코드 출력에서 구분자가 남지 않고 블록마다 따로 가운데 맞춘 줄이 된다 — Markdown 이 한 문단의 줄을 이어 붙이므로 블록 사이에 빈 줄을 둔다(그림 모드와 달리 빈 행 하나는 허용) (b) 버전 0.5.1 | `hooks/unicode.ts` · `tests/unicode.test.ts` · `.claude-plugin/plugin.json` | 1 | verified | 공유 경계: `hooks/parse.ts` 의 `displayFormulas(text: string)` 를 쓴다; 각 TeX 를 `plainOf` 로 바꾸고 하나라도 실패하면 `convertParagraph(text)` 로 돌아간다.<br>`claude plugin test` → 121 pass, 0 fail, 6 files. 신규 1개: `adjacent display formulas become separate centered Unicode blocks`.<br>`node --test tests/font-metrics.test.mjs tests/render-bounds.test.mjs tests/render-tex.test.mjs` → 15 pass, 0 fail.<br>`npx -y -p typescript@5 tsc --noEmit` → exit 0 (`Unknown env config "http-proxy"` 경고).<br>토글: `git diff -- hooks/unicode.ts > .git/toggle2.patch` · `git apply -R .git/toggle2.patch` 뒤 `claude plugin test` → 120 pass, 1 fail; red: `(fail) adjacent display formulas become separate centered Unicode blocks`, Expected: `NBSP×19 + A`, 빈 줄, `NBSP×19 + B`; Received: `A\nB`. `git apply .git/toggle2.patch` 복원 뒤 `git status --porcelain` 에 지정된 네 변경 파일만 남았다.<br>재실행(드라이버): unicodeMath 프로브 6개 입력과 실제 원문 기대대로 | |
 
 - 항목 하나는 승격 하나에 들어갈 크기다. 같은 부류는 한 승격에 묶이고, 파일 집합이 겹치지 않는 부류만 따로 승격할 수 있다. 승격 칸에는 커밋 해시를 적는다.
 - `의존`: 다른 항목의 계약(시그니처·불변식·생성물·호출 순서)을 전제하면 그 번호를 적는다. 그 항목에 정정이 오면 이 항목의 근거를 다시 낸 뒤에야 최종 리뷰에 들어간다.
@@ -108,7 +108,7 @@ append-only — 첫 승격 이후부터다. 결정의 이유, 기각한 반박�
 | display 닫는 줄 뒤 빈 줄 없이 이어지는 `where ...` | 비목표 | `hooks/parse.ts:275` · `hooks/parse.ts:364` · `tests/parse.test.ts:163` · 구분자가 MathJax 에 가지 않고 README 는 블록 수식 앞뒤에 빈 줄을 두라고 한다 |
 | `listOf` 머리 수식의 `opens` 판정과 `hasBlockMath` 재귀 | 안전 — 목록 항목의 display 두 개를 blocks로 둔다 | `hooks/parse.ts:426` · `hooks/parse.ts:433` · `hooks/parse.ts:441` · `tests/parse.test.ts:178` |
 | 중괄호 안의 `$$`·`\\]` 와 이스케이프된 `$` 닫기 | 안전 — 이 불변식이 지킨다 | `hooks/parse.ts:234` · `tests/parse.test.ts:196` |
-| 유니코드 변환의 인접 display | 구멍 — 항목 2 | `hooks/unicode.ts:582` · `hooks/unicode.ts:597` |
+| `unicodeMath`·`convertBlock` 인접 display 및 `shownOf` 복사 표시 | 안전 — Markdown 블록은 렌더와 복사가 같은 `unicodeMath` 를 쓰고, display 블록은 각 경로에서 입력 순서대로 따로 쓴다 | `hooks/parse.ts:254` · `hooks/unicode.ts:2` · `hooks/unicode.ts:582` · `hooks/unicode.ts:584` · `hooks/unicode.ts:601` · `hooks/copy.ts:81` · `hooks/copy.ts:109` · `hooks/copy.ts:116` · `hooks/copy.ts:120` · `hooks/register.tsx:452` · `hooks/register.tsx:470` · `tests/unicode.test.ts:77` · `tests/copy.test.ts:153` |
 | `shownOf`의 display 순서와 마우스 복사 정렬 | 안전 — 선택 결과에 display 두 줄과 구분자 경계 유지 | `hooks/copy.ts:81` · `hooks/copy.ts:314` · `tests/copy.test.ts:153` |
 | `register.tsx`의 `firstRows`·`joined` 직접 그룹 그림 배치 | 안전 — Image 두 개가 같은 그룹이며 사이 간격 없음 | `hooks/register.tsx:686` · `hooks/register.tsx:713` · `hooks/register.tsx:728` · `tests/render.test.ts:47` |
 | 인접 display 문법이 들어간 block quote·table | 비목표 | `README.md:37` — 그림 대신 유니코드 텍스트로 처리하는 Markdown 구역 |
@@ -133,7 +133,12 @@ append-only — 첫 승격 이후부터다. 결정의 이유, 기각한 반박�
 
 ### R1
 
-- 아직 시작하지 않음.
+#### 리뷰 1 — 증분 · 478b227 · 드라이버 직접
+
+- 차단: 없음
+- 수정: 항목 1 (`displayFormulas`)
+- 실측: 기준 트리 게이트 120 · 15 · validate 통과 · tsc 0, parseBlocks 프로브 15개 입력
+- 판정: 항목 1 차단 확인 — 실제 원문을 포함한 15개 입력에서 블록 수식이 하나씩 읽히고, 하나뿐인 입력은 7b87c6f 와 같다. 새 표면(displayFormulas·displayClose·목록 머리 판정·readChunk 의 배열 반환)에서 우회를 찾지 못했다. → 항목 1 `cleared`
 
 ## 열린 질문
 

@@ -74,6 +74,22 @@ test('a formula alone in its paragraph is centered as display math', async () =>
   expect(unicodeMath('$$a$$ and $$b$$ inline')).toBe('a and b inline')
 })
 
+test('adjacent display formulas become separate centered Unicode blocks', async () => {
+  const pad = (n: number) => '\u00a0'.repeat(n)
+  const inputs = [
+    '$$\nA\n$$\n$$\nB\n$$',
+    '$$A$$\n$$B$$',
+    '$$A$$ $$B$$',
+    '\\[A\\]\n\\[B\\]',
+    '$$A$$\n\\[B\\]',
+  ]
+  for (const input of inputs) {
+    expect(unicodeMath(input, 40)).toBe(`${pad(19)}A\n\n${pad(19)}B`)
+    expect(unicodeMath(input)).toBe(`${pad(4)}A\n\n${pad(4)}B`)
+  }
+  expect(unicodeMath('$$A$$ and $$B$$', 40)).toBe('A and B')
+})
+
 test('code spans and code blocks keep their dollars', async () => {
   expect(unicodeMath('run `echo $x$` and $y$')).toBe('run `echo $x$` and y')
   expect(unicodeMath('``a ` $b$`` $d$!')).toBe('``a ` $b$`` d!')
