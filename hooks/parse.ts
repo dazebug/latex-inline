@@ -455,6 +455,9 @@ function listOf(list: ListChunk, depth: number): Block {
   const items = list.items.map((item, index): ListItem => {
     const chunks = scan(item.lines)
     const head = chunks[0]
+    // Keep a run of display formulas that opens the item out of its first
+    // line: read as that line, the run's later formulas would be drawn twice,
+    // in the line and again as blocks. The marker gets a row of its own.
     const adjacentDisplayHead = head?.kind === 'display'
       && chunks[1]?.kind === 'display'
       && chunks[1].start === head.start
