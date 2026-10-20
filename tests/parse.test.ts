@@ -137,6 +137,68 @@ test('blocks: markdown passes through, math paragraphs, display math and lists a
   ])
 })
 
+test('adjacent display formulas split into blocks, while text between them stays a paragraph', async () => {
+  const displays = [
+    { kind: 'display', tex: 'A' },
+    { kind: 'display', tex: 'B', joined: true },
+  ]
+  for (const text of [
+    '$$\nA\n$$\n$$\nB\n$$',
+    '$$A$$\n$$B$$',
+    '$$A$$ $$B$$',
+    '\\[A\\]\n\\[B\\]',
+    '$$A$$\n\\[B\\]',
+  ]) {
+    expect(parseBlocks(text)).toEqual(displays)
+  }
+  expect(parseBlocks('$$A$$ and $$B$$')).toEqual([
+    {
+      kind: 'para',
+      tokens: [
+        { kind: 'math', tex: 'A' },
+        { kind: 'text', text: ' ' },
+        { kind: 'text', text: 'and ' },
+        { kind: 'math', tex: 'B' },
+      ],
+    },
+  ])
+  expect(parseBlocks('$$A$$\nwhere x')).toEqual([
+    {
+      kind: 'para',
+      tokens: [
+        { kind: 'math', tex: 'A' },
+        { kind: 'text', text: ' ' },
+        { kind: 'text', text: 'where ' },
+        { kind: 'text', text: 'x' },
+      ],
+    },
+  ])
+})
+
+test('adjacent display formulas under a list item stay as separate blocks', async () => {
+  expect(parseBlocks('- $$\n  A\n  $$\n  $$\n  B\n  $$')).toEqual([
+    {
+      kind: 'list',
+      items: [
+        {
+          prefix: '- ',
+          tokens: [],
+          blocks: [
+            { kind: 'display', tex: 'A' },
+            { kind: 'display', tex: 'B', joined: true },
+          ],
+        },
+      ],
+    },
+  ])
+})
+
+test('a display formula does not close on delimiters inside braces or escaped dollars', async () => {
+  expect(parseBlocks('$$\\text{$$}$$')).toEqual([{ kind: 'display', tex: '\\text{$$}' }])
+  expect(parseBlocks('$$5\\$$$')).toEqual([{ kind: 'display', tex: '5\\$' }])
+  expect(parseBlocks('\\[\\text{\\]}\\]')).toEqual([{ kind: 'display', tex: '\\text{\\]}' }])
+})
+
 test('a reply without math stays one markdown block', async () => {
   const text = '그냥 문단\n\n| a | b |\n|---|---|\n| $1 | $2 |'
   expect(parseBlocks(text)).toEqual([{ kind: 'markdown', text }])

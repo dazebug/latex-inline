@@ -150,6 +150,13 @@ test('a display formula selected alone is copied as its LaTeX', async () => {
   expect(copyAsLatex(selected, shown(REPLY))).toBe('$$\\int_0^1 x^2 \\, dx = \\frac{1}{3}$$')
 })
 
+test('a mouse copy of adjacent display formulas uses one newline between them', async () => {
+  const reply = '$$\nA\n$$\n$$\nB\n$$'
+  const sizes = { A: { columns: 2, rows: 1 }, B: { columns: 3, rows: 1 } }
+  const selected = `${cells(0, 0, 1)}\n${cells(0, 0, 2)}`
+  expect(copyAsLatex(selected, shown(reply, sizes))).toBe('$$A$$\n$$B$$')
+})
+
 test('an inline formula and the particle after it are copied together', async () => {
   const reply = '그래서 $x$는 양수이고 $y$는 음수입니다.'
   const sizes = { x: { columns: 2, rows: 1 }, y: { columns: 3, rows: 1 } }
