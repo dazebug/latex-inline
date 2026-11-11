@@ -93,6 +93,12 @@
       "min": 0.5,
       "max": 6
     },
+    "font": {
+      "type": "string",
+      "title": "Math font",
+      "description": "The font for formulas. The default is fira (Fira Math). To use a different MathJax font, install its package, @mathjax/mathjax-<name>-font, in the node_modules folder of the plugin. Then write its name here.",
+      "default": "fira"
+    },
     "color": {
       "type": "string",
       "title": "Math color",

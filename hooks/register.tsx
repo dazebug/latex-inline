@@ -328,6 +328,7 @@ export const register: Register = (on, options) => {
     lineEm: numberOption(options, 'line_height', style.lineEm),
     mathScale: numberOption(options, 'math_scale', style.mathScale),
     displayScale: numberOption(options, 'display_scale', style.displayScale),
+    fontFamily: stringOption(options, 'font', style.fontFamily),
   }
 
   on('session.start', async ($, e, next) => {
@@ -405,6 +406,7 @@ export const register: Register = (on, options) => {
       `Terminal font: ${fontReport}`,
       `Cell: height/width ${style.cellRatio.toFixed(3)}, baseline at ${style.baseline.toFixed(3)} of the height, ${style.lineEm.toFixed(3)} em tall`,
       `Sizes: inline ${style.mathScale} em, display ${style.displayScale} em`,
+      `Math font: ${style.fontFamily}`,
       `Pictures: ${config.cacheDir}`,
     ]
     return { text: lines.join('\n') }
