@@ -79,6 +79,7 @@ Set options with `/plugin configure latex-inline@latex-inline` or in the `/confi
 | `line_height` | `1.308` | The cell height in ems of your terminal font. |
 | `math_scale` | `1.62` | Inline formula size in ems of your terminal font. |
 | `display_scale` | `2.18` | Display formula size in ems of your terminal font. |
+| `font` | `fira` | The font for formulas. The default is `fira` (Fira Math). To use a different MathJax font, install its package, `@mathjax/mathjax-<name>-font`, in the `node_modules` folder of the plugin. Then write its name here. |
 | `color` | `auto` | Formula color: `auto` follows Claude Code's theme, or a `#rrggbb` color. |
 
 Inline formulas never shrink to fit a text row. A formula that is taller than a row, such as one with a fraction or a subscript under a superscript, takes three rows, and that line of text is spaced apart to make room.

@@ -78,6 +78,31 @@ test('with mode off a reply is drawn as written', { options: { mode: 'off' } }, 
   expect((await ui.find({ type: 'Text' }))?.text).toBe(REPLY)
 })
 
+// The font in each request that the plugin sends to bin/render.mjs.
+function renderedFonts(on: On): string[] {
+  const fonts: string[] = []
+  on('process.run', async ($, e) => {
+    if (!e.argv[1]?.endsWith('/bin/render.mjs')) return { deny: 'not on this machine' }
+    fonts.push(JSON.parse(e.init?.stdin ?? '{}').fontFamily)
+    return { value: { exitCode: 0, stdout: JSON.stringify({ results: [] }), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  return fonts
+}
+
+for (const [font, drawn] of [[undefined, 'fira'], ['newcm', 'newcm']] as const) {
+  test(`with font ${font ?? 'unset'}, formulas use ${drawn} and /latex-inline shows it`, { options: { mode: 'on', font_metrics: 'manual', copy_latex: false, ...(font === undefined ? {} : { font }) } }, async ($, on) => {
+    engine(on, { clock: false })
+    const clock = mock.clock(on)
+    const fonts = renderedFonts(on)
+    await $.session.start(SESSION)
+    await $.ui.mount({ plugin: 'latex-inline', surface: 'terminal', component: 'AssistantMessage', props: { text: REPLY, isFirstOfReply: true } })
+    await clock.advance(200)
+    expect(fonts).toEqual([drawn])
+    const status = await $.command.run({ command: 'latex-inline', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } })
+    expect(status.text).toContain(`Math font: ${drawn}`)
+  })
+}
+
 const TABLE = '| 식 | 값 |\n| - | - |\n| $y_i$ | 1 |'
 const TABLE_UNICODE = '| 식 | 값 |\n| - | - |\n| yᵢ | 1 |'
 
